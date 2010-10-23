@@ -2657,6 +2657,29 @@ PRE(sys_semget)
    PRE_REG_READ3(long, "semget", vki_key_t, key, int, nsems, int, semflg);
 }
 
+PRE(sys_shm_open)
+{
+   PRINT("sys_shm_open(%#lx(%s), %ld, %ld)", ARG1, (char *)ARG1, ARG2, ARG3);
+   PRE_REG_READ3(long, "shm_open",
+                 const char *, "name", int, "flags", vki_mode_t, "mode");
+
+   PRE_MEM_RASCIIZ( "shm_open(filename)", ARG1 );
+
+   *flags |= SfMayBlock;
+}
+
+POST(sys_shm_open)
+{
+   vg_assert(SUCCESS);
+   if (!ML_(fd_allowed)(RES, "shm_open", tid, True)) {
+      VG_(close)(RES);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else {
+      if (VG_(clo_track_fds))
+         ML_(record_fd_open_with_given_name)(tid, RES, (Char*)ARG1);
+   }
+}
+
 PRE(sys_semop)
 {
    *flags |= SfMayBlock;
@@ -3879,7 +3902,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    BSDX_(__NR_ftruncate7,		sys_ftruncate7),		// 480
    BSDXY(__NR_thr_kill2,                sys_thr_kill2),			// 481
-   // shm_open								   482
+   BSDXY(__NR_shm_open,			sys_shm_open),			// 482
    // shm_unlink							   483
 
    // cpuset								   484
