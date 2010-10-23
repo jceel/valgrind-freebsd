@@ -92,7 +92,6 @@ void * VG_NOTIFY_ON_LOAD(ifunc_wrapper) (void)
                                fn.nraddr, result, 0, 0, 0);
     return (void*)result;
 }
-#endif
 
 #elif defined(VGO_darwin)
 
