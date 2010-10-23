@@ -55,7 +55,7 @@
 #include "priv_storage.h"
 #include "priv_readdwarf.h"
 #include "priv_readstabs.h"
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 # include "priv_readelf.h"
 # include "priv_readdwarf3.h"
 # include "priv_readpdb.h"
@@ -385,6 +385,7 @@ static Bool ranges_overlap (Addr s1, SizeT len1, Addr s2, SizeT len2 )
    return True;
 }
 
+//VG_(printf)("acquire_syms_for_range: %p:%p\n", seg_addr, seg_len);
 
 /* Do the basic rx_ and rw_ mappings of the two DebugInfos overlap in
    any way? */
@@ -525,8 +526,11 @@ static void check_CFSI_related_invariants ( DebugInfo* di )
    di2 = NULL;
    /* invariant (2) */
    if (di->cfsi) {
+//VG_(printf)("cfsi_minavma %#lx cfsi_maxavma %#lx rx_map_avma %#lx rx_map_size %#lx end %#lx\n", di->cfsi_minavma, di->cfsi_maxavma, di->rx_map_avma, di->rx_map_size, di->rx_map_avma + di->rx_map_size);
       vg_assert(di->cfsi_minavma <= di->cfsi_maxavma); /* duh! */
+#if !defined(VGP_amd64_freebsd)	/* gcc does something wierd here */
       vg_assert(di->cfsi_minavma >= di->rx_map_avma);
+#endif
       vg_assert(di->cfsi_maxavma < di->rx_map_avma + di->rx_map_size);
    }
    /* invariants (3) and (4) */
@@ -576,7 +580,7 @@ void VG_(di_initialise) ( void )
 /*---                                                        ---*/
 /*--------------------------------------------------------------*/
 
-#if defined(VGO_linux)  ||  defined(VGO_darwin)
+#if defined(VGO_linux)  ||  defined(VGO_darwin)  ||  defined(VGO_freebsd)
 
 /* The debug info system is driven by notifications that a text
    segment has been mapped in, or unmapped.  When that happens it
@@ -757,7 +761,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV )
 
    /* We're only interested in mappings of object files. */
    // Nb: AIX5 doesn't use this file and so isn't represented here.
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
    if (!ML_(is_elf_object_file)( buf1k, (SizeT)nread ))
       return 0;
 #elif defined(VGO_darwin)
@@ -818,7 +822,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV )
 
    /* .. and acquire new info. */
    // Nb: AIX5 doesn't use this file and so isn't represented here.
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
    ok = ML_(read_elf_debug_info)( di );
 #elif defined(VGO_darwin)
    ok = ML_(read_macho_debug_info)( di );
@@ -1471,6 +1475,8 @@ Vg_FnNameKind VG_(get_fnname_kind) ( Char* name )
 #      if defined(VGO_linux)
        VG_STREQ("__libc_start_main",  name) ||  // glibc glibness
        VG_STREQ("generic_start_main", name) ||  // Yellow Dog doggedness
+#      elif defined(VGO_freebsd)
+       VG_STREQ("_start", name)             ||
 #      elif defined(VGO_aix5)
        VG_STREQ("__start", name)            ||  // AIX aches
 #      elif defined(VGO_darwin)

@@ -49,10 +49,15 @@ valgrind_SOURCES = \
 	launcher-darwin.c \
 	m_debuglog.c
 endif
+if VGCONF_OS_IS_FREEBSD
+valgrind_SOURCES = \
+	launcher-freebsd.c \
+	m_debuglog.c
+endif
 
 valgrind_CPPFLAGS  = $(AM_CPPFLAGS_PRI)
 valgrind_CFLAGS    = $(AM_CFLAGS_PRI)
-valgrind_CCASFLAGS = $(AM_CCASFLAGS_PRI)
+valgrind_CCASFLAGS = $(AM_CCASFLAGS_PRI) $(AM_CPPFLAGS_PRI)
 valgrind_LDFLAGS   = $(AM_CFLAGS_PRI)
 if VGCONF_PLATFORMS_INCLUDE_X86_DARWIN
 valgrind_LDFLAGS   += -Wl,-read_only_relocs -Wl,suppress
@@ -289,12 +294,15 @@ COREGRIND_SOURCES_COMMON = \
 	m_dispatch/dispatch-amd64-linux.S \
 	m_dispatch/dispatch-ppc32-linux.S \
 	m_dispatch/dispatch-ppc64-linux.S \
+	m_dispatch/dispatch-x86-freebsd.S \
+	m_dispatch/dispatch-amd64-freebsd.S \
 	m_dispatch/dispatch-arm-linux.S \
 	m_dispatch/dispatch-ppc32-aix5.S \
 	m_dispatch/dispatch-ppc64-aix5.S \
 	m_dispatch/dispatch-x86-darwin.S \
 	m_dispatch/dispatch-amd64-darwin.S \
 	m_initimg/initimg-linux.c \
+	m_initimg/initimg-freebsd.c \
 	m_initimg/initimg-aix5.c \
 	m_initimg/initimg-darwin.c \
 	m_initimg/initimg-pathscan.c \
@@ -307,6 +315,8 @@ COREGRIND_SOURCES_COMMON = \
 	m_scheduler/sema.c \
 	m_sigframe/sigframe-x86-linux.c \
 	m_sigframe/sigframe-amd64-linux.c \
+	m_sigframe/sigframe-x86-freebsd.c \
+	m_sigframe/sigframe-amd64-freebsd.c \
 	m_sigframe/sigframe-ppc32-linux.c \
 	m_sigframe/sigframe-ppc64-linux.c \
 	m_sigframe/sigframe-arm-linux.c \
@@ -318,6 +328,8 @@ COREGRIND_SOURCES_COMMON = \
 	m_syswrap/syscall-amd64-linux.S \
 	m_syswrap/syscall-ppc32-linux.S \
 	m_syswrap/syscall-ppc64-linux.S \
+	m_syswrap/syscall-x86-freebsd.S \
+	m_syswrap/syscall-amd64-freebsd.S \
 	m_syswrap/syscall-arm-linux.S \
 	m_syswrap/syscall-ppc32-aix5.S \
 	m_syswrap/syscall-ppc64-aix5.S \
@@ -327,12 +339,16 @@ COREGRIND_SOURCES_COMMON = \
 	m_syswrap/syswrap-generic.c \
 	m_syswrap/syswrap-linux.c \
 	m_syswrap/syswrap-linux-variants.c \
+	m_syswrap/syswrap-freebsd.c \
+	m_syswrap/syswrap-freebsd-variants.c \
 	m_syswrap/syswrap-aix5.c \
 	m_syswrap/syswrap-darwin.c \
 	m_syswrap/syswrap-x86-linux.c \
 	m_syswrap/syswrap-amd64-linux.c \
 	m_syswrap/syswrap-ppc32-linux.c \
 	m_syswrap/syswrap-ppc64-linux.c \
+	m_syswrap/syswrap-x86-freebsd.c \
+	m_syswrap/syswrap-amd64-freebsd.c \
 	m_syswrap/syswrap-arm-linux.c \
 	m_syswrap/syswrap-ppc32-aix5.c \
 	m_syswrap/syswrap-ppc64-aix5.c \

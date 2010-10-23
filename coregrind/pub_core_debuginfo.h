@@ -56,7 +56,7 @@ extern void VG_(di_initialise) ( void );
    in later queries to m_debuginfo.  In this case the handle value
    will be one or above.  If the returned value is zero, no debug info
    was read. */
-#if defined(VGO_linux)  ||  defined(VGO_darwin)
+#if defined(VGO_linux)  ||  defined(VGO_darwin)  ||  defined(VGO_freebsd)
 extern ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV );
 
 extern void VG_(di_notify_munmap)( Addr a, SizeT len );

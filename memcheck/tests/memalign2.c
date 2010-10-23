@@ -31,6 +31,8 @@ int main ( void )
    int  res;
    assert(sizeof(long int) == sizeof(void*));
 
+  
+#if !defined(__FreeBSD__)
    p = memalign(0, 100);      assert(0 == (long)p % 8);
    p = memalign(1, 100);      assert(0 == (long)p % 8);
    p = memalign(2, 100);      assert(0 == (long)p % 8);
@@ -49,9 +51,11 @@ int main ( void )
    p = memalign(4095, 100);   assert(0 == (long)p % 4096);
    p = memalign(4096, 100);   assert(0 == (long)p % 4096);
    p = memalign(4097, 100);   assert(0 == (long)p % 8192);
+#endif
 
 #  define PM(a,b,c) posix_memalign((void**)a, b, c)
 
+#if !defined(__FreeBSD__) || __FreeBSD__ >= 6
    res = PM(&p, -1,100);      assert(EINVAL == res);
    res = PM(&p, 0, 100);      assert(0 == res && 0 == (long)p % 8);
    res = PM(&p, 1, 100);      assert(EINVAL == res);
@@ -70,6 +74,7 @@ int main ( void )
                                                  0 == (long)p % 4096); 
    res = PM(&p, 4097, 100);   assert(EINVAL == res);
 
+#endif
 #  endif
    
    return 0;

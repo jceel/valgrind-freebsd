@@ -273,7 +273,7 @@ void VG_(env_remove_valgrind_env_stuff)(Char** envp)
 
 Int VG_(waitpid)(Int pid, Int *status, Int options)
 {
-#  if defined(VGO_linux)
+#  if defined(VGO_linux) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall4)(__NR_wait4,
                                  pid, (UWord)status, options, 0);
    return sr_isError(res) ? -1 : sr_Res(res);
@@ -456,6 +456,15 @@ Int VG_(gettid)(void)
 
    return sr_Res(res);
 
+#  elif defined(VGO_freebsd)
+   SysRes res;
+   long tid;
+
+   res = VG_(do_syscall1)(__NR_thr_self, (UWord)&tid);   
+   if (sr_isError(res))
+      tid = sr_Res(VG_(do_syscall0)(__NR_getpid));
+   return tid;
+   
 #  elif defined(VGO_aix5)
    SysRes res;
    Int    r;
@@ -542,7 +551,7 @@ Int VG_(getgroups)( Int size, UInt* list )
       list[i] = (UInt)list16[i];
    return sr_Res(sres);
 
-#  elif defined(VGP_amd64_linux) || defined(VGP_ppc64_linux)  \
+#  elif defined(VGP_amd64_linux) || defined(VGP_ppc64_linux) || defined(VGO_freebsd) \
         || defined(VGP_arm_linux)                             \
         || defined(VGP_ppc32_aix5) || defined(VGP_ppc64_aix5) \
         || defined(VGO_darwin)
@@ -576,7 +585,7 @@ Int VG_(ptrace) ( Int request, Int pid, void *addr, void *data )
 
 Int VG_(fork) ( void )
 {
-#  if defined(VGO_linux) || defined(VGO_aix5)
+#  if defined(VGO_linux) || defined(VGO_aix5) || defined(VGO_freebsd)
    SysRes res;
    res = VG_(do_syscall0)(__NR_fork);
    if (sr_isError(res))
@@ -622,6 +631,14 @@ UInt VG_(read_millisecond_timer) ( void )
        vg_assert(! sr_isError(res));
        now = tv_now.tv_sec * 1000000ULL + tv_now.tv_usec;
      }
+   }
+
+#  elif defined(VGO_freebsd)
+   { SysRes res;
+     struct vki_timeval tv_now;
+     res = VG_(do_syscall2)(__NR_gettimeofday, (UWord)&tv_now, (UWord)NULL);
+     vg_assert(! sr_isError(res));
+     now = tv_now.tv_sec * 1000000ULL + tv_now.tv_usec;
    }
 
 #  elif defined(VGO_aix5)
@@ -731,6 +748,86 @@ void VG_(do_atfork_child)(ThreadId tid)
          (*atforks[i].child)(tid);
 }
 
+/* ---------------------------------------------------------------------
+   FreeBSD sysctl(), modfind(), etc
+   ------------------------------------------------------------------ */
+
+#if defined(VGO_freebsd)
+Int VG_(sysctl)(int *name, UInt namelen, void *oldp, vki_size_t *oldlenp, void *newp, vki_size_t newlen)
+{
+   SysRes res;
+
+   res = VG_(do_syscall6)(__NR___sysctl, (UWord)name, namelen, (UWord)oldp, (UWord)oldlenp, (UWord)newp, newlen);
+   if (sr_isError(res))
+      return -1;
+   return sr_Res(res);
+}
+
+Int VG_(sysctlbyname)(const Char *name, void *oldp, vki_size_t *oldlenp, void *newp, vki_size_t newlen)
+{
+   Int oid[2];
+   Int real_oid[10];
+   vki_size_t oidlen;
+   int error;
+
+   oid[0] = 0;		/* magic */
+   oid[1] = 3;		/* undocumented */
+   oidlen = sizeof(real_oid);
+   error = VG_(sysctl)(oid, 2, real_oid, &oidlen, (void *)name, VG_(strlen)(name));
+   if (error < 0)
+      return error;
+   oidlen /= sizeof(int);
+   error = VG_(sysctl)(real_oid, oidlen, oldp, oldlenp, newp, newlen);
+   return error;
+}
+
+Int VG_(getosreldate)(void)
+{
+   static Int osreldate = 0;
+   vki_size_t osreldatel;
+
+   if (osreldate == 0) {
+      osreldatel = sizeof(osreldate);
+      VG_(sysctlbyname)("kern.osreldate", &osreldate, &osreldatel, 0, 0);
+   }
+   return (osreldate);
+}
+
+Bool VG_(is32on64)(void)
+{
+#if defined(VGP_amd64_freebsd)
+   return False;
+#elif defined(VGP_x86_freebsd)
+   Int oid[2], error;
+   vki_size_t len;
+   char machbuf[32];
+   static Int is32on64 = -1;
+
+   if (is32on64 == -1) {
+      oid[0] = VKI_CTL_HW;
+      oid[1] = VKI_HW_MACHINE;
+      len = sizeof(machbuf);
+      error =  VG_(sysctl)(oid, 2, machbuf, &len, NULL, 0);
+      if (error == 0) {
+	 machbuf[31] = '\0';
+	 if (VG_(strcmp)(machbuf, "amd64") == 0)
+	    is32on64 = 1;
+	 else
+	    is32on64 = 0;
+      } else {
+	 is32on64 = -2;
+      }
+   }
+   if (is32on64 == 1) {
+      return True;
+   } else {
+      return False;
+   }
+#else
+#  error Unknown platform
+#endif
+}
+#endif
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

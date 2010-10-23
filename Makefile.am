@@ -50,6 +50,7 @@ SUPP_FILES = \
 	glibc-2.X-drd.supp \
 	exp-ptrcheck.supp \
 	darwin9.supp darwin9-drd.supp \
+	freebsd.supp \
 	darwin10.supp darwin10-drd.supp
 DEFAULT_SUPP_FILES = @DEFAULT_SUPP@
 

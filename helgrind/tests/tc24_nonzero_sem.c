@@ -7,6 +7,9 @@
 #include <semaphore.h>
 #include <assert.h>
 #include <unistd.h>
+#if defined(VGO_freebsd)
+# include <sys/fcntl.h>
+#endif
 #define N_THREADS 3
 static int my_sem_init(sem_t*, char*, int, unsigned);
 static int my_sem_destroy(sem_t*);
@@ -45,7 +48,7 @@ static int my_sem_init (sem_t* s, char* identity, int pshared, unsigned count)
 {
 #if defined(VGO_linux)
    return sem_init(s, pshared, count);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
    char name[100];
    sem_t** fakeptr = (sem_t**)s;
    assert(sizeof(sem_t) >= sizeof(sem_t*));
@@ -67,7 +70,7 @@ static int my_sem_destroy ( sem_t* s )
 {
 #if defined(VGO_linux)
    return sem_destroy(s);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
    sem_t** fakeptr = (sem_t**)s;
    return sem_close(*fakeptr);
 #else
@@ -79,7 +82,7 @@ static int my_sem_wait(sem_t* s)
 {
 #if defined(VGO_linux)
   return sem_wait(s);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
   return sem_wait( *(sem_t**)s );
 #else
 #  error "Unsupported OS"

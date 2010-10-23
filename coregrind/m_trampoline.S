@@ -125,8 +125,7 @@ VG_(trampoline_stuff_end):
 #	undef UD2_PAGE
 	
 /*---------------------- amd64-linux ----------------------*/
-#else
-#if defined(VGP_amd64_linux)
+#elif defined(VGP_amd64_linux)
 
 #	define UD2_16     ud2 ; ud2 ; ud2 ; ud2 ;ud2 ; ud2 ; ud2 ; ud2
 #	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
@@ -252,8 +251,7 @@ VG_(trampoline_stuff_end):
 #	undef UD2_PAGE
 
 /*---------------- ppc32-linux ----------------*/
-#else
-#if defined(VGP_ppc32_linux)
+#elif defined(VGP_ppc32_linux)
 
 #	define UD2_16     trap ; trap ; trap; trap
 #	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
@@ -375,8 +373,7 @@ VG_(trampoline_stuff_end):
 #	undef UD2_PAGE
 
 /*---------------- ppc64-linux ----------------*/
-#else
-#if defined(VGP_ppc64_linux)
+#elif defined(VGP_ppc64_linux)
 
 #	define UD2_16     trap ; trap ; trap; trap
 #	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
@@ -625,8 +622,7 @@ VG_(trampoline_stuff_end):
 #	undef UD2_PAGE
         
 /*---------------- ppc32-aix5 ----------------*/
-#else
-#if defined(VGP_ppc32_aix5)
+#elif defined(VGP_ppc32_aix5)
 
 #	define UD2_16     trap ; trap ; trap; trap
 #	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
@@ -773,8 +769,7 @@ VG_(trampoline_stuff_end):
 #	undef UD2_PAGE
 
 /*---------------- ppc64-aix5 ----------------*/
-#else
-#if defined(VGP_ppc64_aix5)
+#elif defined(VGP_ppc64_aix5)
 
 #	define UD2_16     trap ; trap ; trap; trap
 #	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
@@ -906,9 +901,62 @@ VG_(trampoline_stuff_end):
 #	undef UD2_1024
 #	undef UD2_PAGE
 
+#elif defined(VGP_x86_freebsd)
+
+.global VG_(trampoline_stuff_start)
+VG_(trampoline_stuff_start):
+
+.global VG_(x86_freebsd_SUBST_FOR_sigreturn)
+VG_(x86_freebsd_SUBST_FOR_sigreturn):
+	lea	0x14(%esp), %eax	/* args to sigreturn(ucontext_t *) */
+	pushl	%eax
+	pushl	%eax			/* fake return addr */
+/*	movl	0x44(%eax), %gs	; restore %gs, not done by sigreturn */
+        movl    $__NR_sigreturn, %eax
+        int     $0x80
+        ud2
+
+.global VG_(trampoline_stuff_end)
+VG_(trampoline_stuff_end):
+
+#elif defined(VGP_amd64_freebsd)
+
+#	define UD2_16     ud2 ; ud2 ; ud2 ; ud2 ;ud2 ; ud2 ; ud2 ; ud2
+#	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
+#	define UD2_256    UD2_64   ; UD2_64   ; UD2_64   ; UD2_64
+#	define UD2_1024   UD2_256  ; UD2_256  ; UD2_256  ; UD2_256
+#	define UD2_PAGE   UD2_1024 ; UD2_1024 ; UD2_1024 ; UD2_1024  
+
+	/* a leading page of unexecutable code */
+	UD2_PAGE
+
+.global VG_(trampoline_stuff_start)
+VG_(trampoline_stuff_start):
+
+.global VG_(amd64_freebsd_SUBST_FOR_sigreturn)
+VG_(amd64_freebsd_SUBST_FOR_sigreturn):
+        /* This is a very specific sequence which GDB uses to
+           recognize signal handler frames. */
+        movq    $__NR_sigreturn, %rax
+        movq	%rsp, %rdi
+        addq	$40,%rdi
+        syscall
+        ud2
+
+.global VG_(trampoline_stuff_end)
+VG_(trampoline_stuff_end):
+
+	/* and a trailing page of unexecutable code */
+	UD2_PAGE
+
+#	undef UD2_16
+#	undef UD2_64
+#	undef UD2_256
+#	undef UD2_1024
+#	undef UD2_PAGE
+
 /*---------------- x86-darwin ----------------*/
-#else
-#if defined(VGP_x86_darwin)
+#elif defined(VGP_x86_darwin)
 
         /* a leading page of unexecutable code */
 .fill 2048, 2, 0x0b0f /* `ud2` */
@@ -1067,8 +1115,7 @@ VG_(trampoline_stuff_end):
 
 
 /*---------------- amd64-darwin ----------------*/
-#else
-#if defined(VGP_amd64_darwin)
+#elif defined(VGP_amd64_darwin)
 
         /* a leading page of unexecutable code */
 .fill 2048, 2, 0x0b0f /* `ud2` */
@@ -1213,18 +1260,9 @@ VG_(trampoline_stuff_end):
         /* a trailing page of unexecutable code */
 .fill 2048, 2, 0x0b0f /* `ud2` */
 
-
 /*---------------- unknown ----------------*/
 #else
 #  error Unknown platform
-
-#endif
-#endif
-#endif
-#endif
-#endif
-#endif
-#endif
 #endif
 
 #if defined(VGO_linux)

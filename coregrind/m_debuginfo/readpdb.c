@@ -35,7 +35,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux) || defined(VGO_darwin)
+#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_debuginfo.h"
@@ -2431,7 +2431,6 @@ Bool ML_(read_pdb_debug_info)(
    return True;
 }
 
-
 /* Examine a PE file to see if it states the path of an associated PDB
    file; if so return that.  Caller must deallocate with
    ML_(dinfo_free).
@@ -2548,7 +2547,7 @@ HChar* ML_(find_name_of_pdb_file)( HChar* pename )
    return res;
 }
 
-#endif // defined(VGO_linux) || defined(VGO_darwin)
+#endif // defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

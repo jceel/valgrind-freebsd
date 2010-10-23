@@ -63,7 +63,7 @@
 
 /* ------------------------ x86 ------------------------- */
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_darwin)
+#if defined(VGP_x86_linux) || defined(VGP_x86_darwin) || defined(VGP_x86_freebsd)
 
 UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
                                /*OUT*/Addr* ips, UInt max_n_ips,
@@ -219,7 +219,7 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
 
 /* ----------------------- amd64 ------------------------ */
 
-#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin)
+#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) || defined(VGP_amd64_freebsd)
 
 UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
                                /*OUT*/Addr* ips, UInt max_n_ips,

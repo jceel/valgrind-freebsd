@@ -152,6 +152,11 @@ static void pc_pre_clo_init(void)
    VG_(printf)("Ptrcheck doesn't work on Darwin yet, sorry.\n");
    VG_(exit)(1);
 #endif
+#if defined(VGO_freebsd)
+   // This makes the (all-failing) regtests run much faster.
+   VG_(printf)("Ptrcheck doesn't work on FreeBSD yet, sorry.\n");
+   VG_(exit)(1);
+#endif
 
    VG_(details_name)            ("exp-ptrcheck");
    VG_(details_version)         (NULL);
