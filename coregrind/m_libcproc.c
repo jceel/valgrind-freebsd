@@ -65,7 +65,7 @@ Char** VG_(client_envp) = NULL;
 const Char *VG_(libdir) = VG_LIBDIR;
 
 const Char *VG_(LD_PRELOAD_var_name) =
-#if defined(VGO_linux) || defined(VGO_aix5)
+#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_aix5)
    "LD_PRELOAD";
 #elif defined(VGO_darwin)
    "DYLD_INSERT_LIBRARIES";

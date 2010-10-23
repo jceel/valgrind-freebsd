@@ -1427,7 +1427,6 @@ static const SyscallTableEntry* get_syscall_entry ( Int syscallno )
    if (syscallno >= 0 && syscallno < ML_(syscall_table_size) &&
        ML_(syscall_table)[syscallno].before != NULL)
       sys = &ML_(syscall_table)[syscallno];
-      break;
 
 #  elif defined(VGO_darwin)
    Int idx = VG_DARWIN_SYSNO_INDEX(syscallno);

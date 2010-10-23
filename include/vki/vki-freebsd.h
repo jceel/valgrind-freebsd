@@ -592,8 +592,8 @@ struct vki_sigevent {
 	} __sigev_u;
 	vki_sigval_t sigev_value;       /* Signal value */
 };
-#define sigev_signo             __sigev_u.__sigev_signo
 #if 0
+#define sigev_signo             __sigev_u.__sigev_signo
 #define sigev_notify_kqueue     __sigev_u.__sigev_notify_kqueue
 #endif
 
@@ -1501,6 +1501,7 @@ struct vki_shmid_ds {
 	void 			*shm_internal;
 };
 
+#define VKI_SHMLBA  VKI_PAGE_SIZE
 #define VKI_SHM_RDONLY  010000  /* read-only access */
 
 #if 0	/* not in freebsd abi */

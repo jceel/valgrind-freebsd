@@ -1663,7 +1663,7 @@ Addr VG_(am_startup) ( Addr sp_at_startup )
    suggested_clstack_top = aspacem_maxAddr - 16*1024*1024ULL
                                            + VKI_PAGE_SIZE;
 
-#elif defined(VGO_linux)
+#else
 
    /* Establish address limits and block out unusable parts
       accordingly. */
@@ -3667,8 +3667,7 @@ static void parse_procselfmaps (
        (*record_gap) ( gapStart, Addr_MAX - gapStart + 1 );
 }
 
-#else
-#  error "Unknown OS!"
+#endif
 #endif
 
 /*--------------------------------------------------------------------*/
