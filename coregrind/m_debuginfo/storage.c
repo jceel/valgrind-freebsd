@@ -9,7 +9,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -126,11 +126,23 @@ void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs, DiCfSI* si )
    VG_(printf)("[%#lx .. %#lx]: ", si->base,
                                si->base + (UWord)si->len - 1);
    switch (si->cfa_how) {
-      case CFIC_SPREL: 
+      case CFIC_IA_SPREL: 
          VG_(printf)("let cfa=oldSP+%d", si->cfa_off); 
          break;
-      case CFIC_FPREL: 
-         VG_(printf)("let cfa=oldFP+%d", si->cfa_off); 
+      case CFIC_IA_BPREL: 
+         VG_(printf)("let cfa=oldBP+%d", si->cfa_off); 
+         break;
+      case CFIC_ARM_R13REL: 
+         VG_(printf)("let cfa=oldR13+%d", si->cfa_off); 
+         break;
+      case CFIC_ARM_R12REL: 
+         VG_(printf)("let cfa=oldR12+%d", si->cfa_off); 
+         break;
+      case CFIC_ARM_R11REL: 
+         VG_(printf)("let cfa=oldR11+%d", si->cfa_off); 
+         break;
+      case CFIC_ARM_R7REL: 
+         VG_(printf)("let cfa=oldR7+%d", si->cfa_off); 
          break;
       case CFIC_EXPR: 
          VG_(printf)("let cfa={"); 
@@ -143,10 +155,26 @@ void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs, DiCfSI* si )
 
    VG_(printf)(" in RA=");
    SHOW_HOW(si->ra_how, si->ra_off);
+#  if defined(VGA_x86) || defined(VGA_amd64)
    VG_(printf)(" SP=");
    SHOW_HOW(si->sp_how, si->sp_off);
-   VG_(printf)(" FP=");
-   SHOW_HOW(si->fp_how, si->fp_off);
+   VG_(printf)(" BP=");
+   SHOW_HOW(si->bp_how, si->bp_off);
+#  elif defined(VGA_arm)
+   VG_(printf)(" R14=");
+   SHOW_HOW(si->r14_how, si->r14_off);
+   VG_(printf)(" R13=");
+   SHOW_HOW(si->r13_how, si->r13_off);
+   VG_(printf)(" R12=");
+   SHOW_HOW(si->r12_how, si->r12_off);
+   VG_(printf)(" R11=");
+   SHOW_HOW(si->r11_how, si->r11_off);
+   VG_(printf)(" R7=");
+   SHOW_HOW(si->r7_how, si->r7_off);
+#  elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#  else
+#    error "Unknown arch"
+#  endif
    VG_(printf)("\n");
 #  undef SHOW_HOW
 }
@@ -574,9 +602,13 @@ static void ppCfiOp ( CfiOp op )
 static void ppCfiReg ( CfiReg reg )
 {
    switch (reg) {
-      case Creg_SP: VG_(printf)("SP"); break;
-      case Creg_FP: VG_(printf)("FP"); break;
-      case Creg_IP: VG_(printf)("IP"); break;
+      case Creg_IA_SP:   VG_(printf)("xSP"); break;
+      case Creg_IA_BP:   VG_(printf)("xBP"); break;
+      case Creg_IA_IP:   VG_(printf)("xIP"); break;
+      case Creg_ARM_R13: VG_(printf)("R13"); break;
+      case Creg_ARM_R12: VG_(printf)("R12"); break;
+      case Creg_ARM_R15: VG_(printf)("R15"); break;
+      case Creg_ARM_R14: VG_(printf)("R14"); break;
       default: vg_assert(0);
    }
 }
@@ -1214,7 +1246,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
    Word  i, j, n_merged, n_truncated;
    Addr  s1, s2, e1, e2, p1, p2;
    UChar *n1, *n2;
-   Bool t1, t2;
+   Bool t1, t2, f1, f2;
 
 #  define SWAP(ty,aa,bb) \
       do { ty tt = (aa); (aa) = (bb); (bb) = tt; } while (0)
@@ -1278,11 +1310,13 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       p1 = di->symtab[i].tocptr;
       n1 = di->symtab[i].name;
       t1 = di->symtab[i].isText;
+      f1 = di->symtab[i].isIFunc;
       s2 = di->symtab[i+1].addr;
       e2 = s2 + di->symtab[i+1].size - 1;
       p2 = di->symtab[i+1].tocptr;
       n2 = di->symtab[i+1].name;
       t2 = di->symtab[i+1].isText;
+      f2 = di->symtab[i+1].isIFunc;
       if (s1 < s2) {
          e1 = s2-1;
       } else {
@@ -1298,16 +1332,18 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
               up back at cleanup_more, which will take care of it. */
 	 }
       }
-      di->symtab[i].addr   = s1;
-      di->symtab[i].size   = e1 - s1 + 1;
-      di->symtab[i].tocptr = p1;
-      di->symtab[i].name   = n1;
-      di->symtab[i].isText = t1;
-      di->symtab[i+1].addr   = s2;
-      di->symtab[i+1].size   = e2 - s2 + 1;
-      di->symtab[i+1].tocptr = p2;
-      di->symtab[i+1].name   = n2;
-      di->symtab[i+1].isText = t2;
+      di->symtab[i].addr    = s1;
+      di->symtab[i].size    = e1 - s1 + 1;
+      di->symtab[i].tocptr  = p1;
+      di->symtab[i].name    = n1;
+      di->symtab[i].isText  = t1;
+      di->symtab[i].isIFunc = f1;
+      di->symtab[i+1].addr    = s2;
+      di->symtab[i+1].size    = e2 - s2 + 1;
+      di->symtab[i+1].tocptr  = p2;
+      di->symtab[i+1].name    = n2;
+      di->symtab[i+1].isText  = t2;
+      di->symtab[i+1].isIFunc = f2;
       vg_assert(s1 <= s2);
       vg_assert(di->symtab[i].size > 0);
       vg_assert(di->symtab[i+1].size > 0);
@@ -1435,7 +1471,7 @@ static Int compare_DiCfSI ( void* va, void* vb )
    return 0;
 }
 
-static void canonicaliseCFI ( struct _DebugInfo* di )
+void ML_(canonicaliseCFI) ( struct _DebugInfo* di )
 {
    Word  i, j;
    const Addr minAvma = 0;
@@ -1528,7 +1564,7 @@ void ML_(canonicaliseTables) ( struct _DebugInfo* di )
 {
    canonicaliseSymtab ( di );
    canonicaliseLoctab ( di );
-   canonicaliseCFI ( di );
+   ML_(canonicaliseCFI) ( di );
    canonicaliseVarInfo ( di );
 }
 

@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2006-2009 OpenWorks LLP
+   Copyright (C) 2006-2010 OpenWorks LLP
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -1521,10 +1521,11 @@ HChar* read_symbol_table (
       /* Actually add the symbol (finallyatlast) */
       if (sane) {
          UInt nlen;
-         dis.addr   = addr;
-         dis.size   = size;
-         dis.tocptr = s->r2known ? s->r2value : 0;
-         dis.isText = True;
+         dis.addr    = addr;
+         dis.size    = size;
+         dis.tocptr  = s->r2known ? s->r2value : 0;
+         dis.isText  = True;
+         dis.isIFunc = False;
          vg_assert(!is_empty_Name(s->name));
          nlen = s->name.len;
          vg_assert(nlen > 0);

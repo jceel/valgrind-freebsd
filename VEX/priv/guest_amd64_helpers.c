@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (guest_amd64_helpers.c) is                    ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                             guest_amd64_helpers.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -835,6 +824,9 @@ ULong LibVEX_GuestAMD64_get_rflags ( /*IN*/VexGuestAMD64State* vex_state )
       rflags |= (1<<10);
    if (vex_state->guest_IDFLAG == 1)
       rflags |= (1<<21);
+   if (vex_state->guest_ACFLAG == 1)
+      rflags |= (1<<18);
+
    return rflags;
 }
 
@@ -878,7 +870,9 @@ static Bool isU64 ( IRExpr* e, ULong n )
 }
 
 IRExpr* guest_amd64_spechelper ( HChar* function_name,
-                                 IRExpr** args )
+                                 IRExpr** args,
+                                 IRStmt** precedingStmts,
+                                 Int      n_precedingStmts )
 {
 #  define unop(_op,_a1) IRExpr_Unop((_op),(_a1))
 #  define binop(_op,_a1,_a2) IRExpr_Binop((_op),(_a1),(_a2))
@@ -995,6 +989,17 @@ IRExpr* guest_amd64_spechelper ( HChar* function_name,
                            binop(Iop_Shl64,cc_dep2,mkU8(32))));
 
       }
+      if (isU64(cc_op, AMD64G_CC_OP_SUBL) && isU64(cond, AMD64CondNLE)) {
+         /* long sub/cmp, then NLE (signed greater than) 
+            --> test !(dst <=s src)
+            --> test (dst >s src)
+            --> test (src <s dst) */
+         return unop(Iop_1Uto64,
+                     binop(Iop_CmpLT64S,
+                           binop(Iop_Shl64,cc_dep2,mkU8(32)),
+                           binop(Iop_Shl64,cc_dep1,mkU8(32))));
+
+      }
 
       if (isU64(cc_op, AMD64G_CC_OP_SUBL) && isU64(cond, AMD64CondBE)) {
          /* long sub/cmp, then BE (unsigned less than or equal)
@@ -1012,6 +1017,16 @@ IRExpr* guest_amd64_spechelper ( HChar* function_name,
                      binop(Iop_CmpLT64U, 
                            binop(Iop_Shl64,cc_dep2,mkU8(32)),
                            binop(Iop_Shl64,cc_dep1,mkU8(32))));
+      }
+
+      if (isU64(cc_op, AMD64G_CC_OP_SUBL) && isU64(cond, AMD64CondS)) {
+         /* long sub/cmp, then S (negative) --> test (dst-src <s 0) */
+         return unop(Iop_1Uto64,
+                     binop(Iop_CmpLT64S,
+                           binop(Iop_Sub64,
+                                 binop(Iop_Shl64, cc_dep1, mkU8(32)), 
+                                 binop(Iop_Shl64, cc_dep2, mkU8(32))),
+                           mkU64(0)));
       }
 
       /*---------------- SUBW ----------------*/
@@ -1145,6 +1160,12 @@ IRExpr* guest_amd64_spechelper ( HChar* function_name,
                      binop(Iop_CmpEQ64, binop(Iop_And64,cc_dep1,mkU64(255)), 
                                         mkU64(0)));
       }
+      if (isU64(cc_op, AMD64G_CC_OP_LOGICB) && isU64(cond, AMD64CondNZ)) {
+         /* byte and/or/xor, then NZ --> test dst!=0 */
+         return unop(Iop_1Uto64,
+                     binop(Iop_CmpNE64, binop(Iop_And64,cc_dep1,mkU64(255)), 
+                                        mkU64(0)));
+      }
 
       if (isU64(cc_op, AMD64G_CC_OP_LOGICB) && isU64(cond, AMD64CondS)) {
          /* this is an idiom gcc sometimes uses to find out if the top
@@ -1162,11 +1183,12 @@ IRExpr* guest_amd64_spechelper ( HChar* function_name,
       /*---------------- INCB ----------------*/
 
       if (isU64(cc_op, AMD64G_CC_OP_INCB) && isU64(cond, AMD64CondLE)) {
-         /* 8-bit inc, then LE --> test result <=s 0 */
-         return unop(Iop_1Uto64,
-                     binop(Iop_CmpLE64S, 
-                           binop(Iop_Shl64,cc_dep1,mkU8(56)),
-                           mkU64(0)));
+         /* 8-bit inc, then LE --> sign bit of the arg */
+         return binop(Iop_And64,
+                      binop(Iop_Shr64,
+                            binop(Iop_Sub64, cc_dep1, mkU64(1)),
+                            mkU8(7)),
+                      mkU64(1));
       }
 
       /*---------------- INCW ----------------*/
@@ -1992,6 +2014,162 @@ void amd64g_dirtyhelper_CPUID_sse3_and_cx16 ( VexGuestAMD64State* st )
 }
 
 
+/* Claim to be the following CPU (4 x ...), which is sse4.2 and cx16
+   capable.
+
+   vendor_id       : GenuineIntel
+   cpu family      : 6
+   model           : 37
+   model name      : Intel(R) Core(TM) i5 CPU         670  @ 3.47GHz
+   stepping        : 2
+   cpu MHz         : 3334.000
+   cache size      : 4096 KB
+   physical id     : 0
+   siblings        : 4
+   core id         : 0
+   cpu cores       : 2
+   apicid          : 0
+   initial apicid  : 0
+   fpu             : yes
+   fpu_exception   : yes
+   cpuid level     : 11
+   wp              : yes
+   flags           : fpu vme de pse tsc msr pae mce cx8 apic sep
+                     mtrr pge mca cmov pat pse36 clflush dts acpi
+                     mmx fxsr sse sse2 ss ht tm pbe syscall nx rdtscp
+                     lm constant_tsc arch_perfmon pebs bts rep_good
+                     xtopology nonstop_tsc aperfmperf pni pclmulqdq
+                     dtes64 monitor ds_cpl vmx smx est tm2 ssse3 cx16
+                     xtpr pdcm sse4_1 sse4_2 popcnt aes lahf_lm ida
+                     arat tpr_shadow vnmi flexpriority ept vpid
+                     MINUS aes (see below)
+   bogomips        : 6957.57
+   clflush size    : 64
+   cache_alignment : 64
+   address sizes   : 36 bits physical, 48 bits virtual
+   power management:
+*/
+void amd64g_dirtyhelper_CPUID_sse42_and_cx16 ( VexGuestAMD64State* st )
+{
+#  define SET_ABCD(_a,_b,_c,_d)                \
+      do { st->guest_RAX = (ULong)(_a);        \
+           st->guest_RBX = (ULong)(_b);        \
+           st->guest_RCX = (ULong)(_c);        \
+           st->guest_RDX = (ULong)(_d);        \
+      } while (0)
+
+   UInt old_eax = (UInt)st->guest_RAX;
+   UInt old_ecx = (UInt)st->guest_RCX;
+
+   switch (old_eax) {
+      case 0x00000000:
+         SET_ABCD(0x0000000b, 0x756e6547, 0x6c65746e, 0x49656e69);
+         break;
+      case 0x00000001:
+         // & ~(1<<25): don't claim to support AES insns.  See
+         // bug 249991.
+         SET_ABCD(0x00020652, 0x00100800, 0x0298e3ff & ~(1<<25),
+                                          0xbfebfbff);
+         break;
+      case 0x00000002:
+         SET_ABCD(0x55035a01, 0x00f0b2e3, 0x00000000, 0x09ca212c);
+         break;
+      case 0x00000003:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x00000004:
+         switch (old_ecx) {
+            case 0x00000000: SET_ABCD(0x1c004121, 0x01c0003f,
+                                      0x0000003f, 0x00000000); break;
+            case 0x00000001: SET_ABCD(0x1c004122, 0x00c0003f,
+                                      0x0000007f, 0x00000000); break;
+            case 0x00000002: SET_ABCD(0x1c004143, 0x01c0003f,
+                                      0x000001ff, 0x00000000); break;
+            case 0x00000003: SET_ABCD(0x1c03c163, 0x03c0003f,
+                                      0x00000fff, 0x00000002); break;
+            default:         SET_ABCD(0x00000000, 0x00000000,
+                                      0x00000000, 0x00000000); break;
+         }
+         break;
+      case 0x00000005:
+         SET_ABCD(0x00000040, 0x00000040, 0x00000003, 0x00001120);
+         break;
+      case 0x00000006:
+         SET_ABCD(0x00000007, 0x00000002, 0x00000001, 0x00000000);
+         break;
+      case 0x00000007:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x00000008:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x00000009:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x0000000a:
+         SET_ABCD(0x07300403, 0x00000004, 0x00000000, 0x00000603);
+         break;
+      case 0x0000000b:
+         switch (old_ecx) {
+            case 0x00000000:
+               SET_ABCD(0x00000001, 0x00000002,
+                        0x00000100, 0x00000000); break;
+            case 0x00000001:
+               SET_ABCD(0x00000004, 0x00000004,
+                        0x00000201, 0x00000000); break;
+            default:
+               SET_ABCD(0x00000000, 0x00000000,
+                        old_ecx,    0x00000000); break;
+         }
+         break;
+      case 0x0000000c:
+         SET_ABCD(0x00000001, 0x00000002, 0x00000100, 0x00000000);
+         break;
+      case 0x0000000d:
+         switch (old_ecx) {
+            case 0x00000000: SET_ABCD(0x00000001, 0x00000002,
+                                      0x00000100, 0x00000000); break;
+            case 0x00000001: SET_ABCD(0x00000004, 0x00000004,
+                                      0x00000201, 0x00000000); break;
+            default:         SET_ABCD(0x00000000, 0x00000000,
+                                      old_ecx,    0x00000000); break;
+         }
+         break;
+      case 0x80000000:
+         SET_ABCD(0x80000008, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x80000001:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000001, 0x28100800);
+         break;
+      case 0x80000002:
+         SET_ABCD(0x65746e49, 0x2952286c, 0x726f4320, 0x4d542865);
+         break;
+      case 0x80000003:
+         SET_ABCD(0x35692029, 0x55504320, 0x20202020, 0x20202020);
+         break;
+      case 0x80000004:
+         SET_ABCD(0x30373620, 0x20402020, 0x37342e33, 0x007a4847);
+         break;
+      case 0x80000005:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      case 0x80000006:
+         SET_ABCD(0x00000000, 0x00000000, 0x01006040, 0x00000000);
+         break;
+      case 0x80000007:
+         SET_ABCD(0x00000000, 0x00000000, 0x00000000, 0x00000100);
+         break;
+      case 0x80000008:
+         SET_ABCD(0x00003024, 0x00000000, 0x00000000, 0x00000000);
+         break;
+      default:
+         SET_ABCD(0x00000001, 0x00000002, 0x00000100, 0x00000000);
+         break;
+   }
+#  undef SET_ABCD
+}
+
+
 ULong amd64g_calculate_RCR ( ULong arg, 
                              ULong rot_amt, 
                              ULong rflags_in, 
@@ -2126,6 +2304,51 @@ ULong amd64g_calculate_RCL ( ULong arg,
    return wantRflags ? rflags_in : arg;
 }
 
+/* Taken from gf2x-0.9.5, released under GPLv2+ (later versions LGPLv2+)
+ * svn://scm.gforge.inria.fr/svn/gf2x/trunk/hardware/opteron/gf2x_mul1.h@25
+ */
+ULong amd64g_calculate_pclmul(ULong a, ULong b, ULong which)
+{
+    ULong hi, lo, tmp, A[16];
+
+   A[0] = 0;            A[1] = a;
+   A[2] = A[1] << 1;    A[3] = A[2] ^ a;
+   A[4] = A[2] << 1;    A[5] = A[4] ^ a;
+   A[6] = A[3] << 1;    A[7] = A[6] ^ a;
+   A[8] = A[4] << 1;    A[9] = A[8] ^ a;
+   A[10] = A[5] << 1;   A[11] = A[10] ^ a;
+   A[12] = A[6] << 1;   A[13] = A[12] ^ a;
+   A[14] = A[7] << 1;   A[15] = A[14] ^ a;
+
+   lo = (A[b >> 60] << 4) ^ A[(b >> 56) & 15];
+   hi = lo >> 56;
+   lo = (lo << 8) ^ (A[(b >> 52) & 15] << 4) ^ A[(b >> 48) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 44) & 15] << 4) ^ A[(b >> 40) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 36) & 15] << 4) ^ A[(b >> 32) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 28) & 15] << 4) ^ A[(b >> 24) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 20) & 15] << 4) ^ A[(b >> 16) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 12) & 15] << 4) ^ A[(b >> 8) & 15];
+   hi = (hi << 8) | (lo >> 56);
+   lo = (lo << 8) ^ (A[(b >> 4) & 15] << 4) ^ A[b & 15];
+
+   ULong m0 = -1;
+   m0 /= 255;
+   tmp = -((a >> 63) & 1); tmp &= ((b & (m0 * 0xfe)) >> 1); hi = hi ^ tmp;
+   tmp = -((a >> 62) & 1); tmp &= ((b & (m0 * 0xfc)) >> 2); hi = hi ^ tmp;
+   tmp = -((a >> 61) & 1); tmp &= ((b & (m0 * 0xf8)) >> 3); hi = hi ^ tmp;
+   tmp = -((a >> 60) & 1); tmp &= ((b & (m0 * 0xf0)) >> 4); hi = hi ^ tmp;
+   tmp = -((a >> 59) & 1); tmp &= ((b & (m0 * 0xe0)) >> 5); hi = hi ^ tmp;
+   tmp = -((a >> 58) & 1); tmp &= ((b & (m0 * 0xc0)) >> 6); hi = hi ^ tmp;
+   tmp = -((a >> 57) & 1); tmp &= ((b & (m0 * 0x80)) >> 7); hi = hi ^ tmp;
+
+   return which ? hi : lo;
+}
+
 
 /* CALLED FROM GENERATED CODE */
 /* DIRTY HELPER (non-referentially-transparent) */
@@ -2201,6 +2424,31 @@ void amd64g_dirtyhelper_OUT ( ULong portno, ULong data, ULong sz/*1,2 or 4*/ )
 #  endif
 }
 
+/* CALLED FROM GENERATED CODE */
+/* DIRTY HELPER (non-referentially-transparent) */
+/* Horrible hack.  On non-amd64 platforms, do nothing. */
+/* op = 0: call the native SGDT instruction.
+   op = 1: call the native SIDT instruction.
+*/
+void amd64g_dirtyhelper_SxDT ( void *address, ULong op ) {
+#  if defined(__x86_64__)
+   switch (op) {
+      case 0:
+         __asm__ __volatile__("sgdt (%0)" : : "r" (address) : "memory");
+         break;
+      case 1:
+         __asm__ __volatile__("sidt (%0)" : : "r" (address) : "memory");
+         break;
+      default:
+         vpanic("amd64g_dirtyhelper_SxDT");
+   }
+#  else
+   /* do nothing */
+   UChar* p = (UChar*)address;
+   p[0] = p[1] = p[2] = p[3] = p[4] = p[5] = 0;
+   p[6] = p[7] = p[8] = p[9] = 0;
+#  endif
+}
 
 /*---------------------------------------------------------------*/
 /*--- Helpers for MMX/SSE/SSE2.                               ---*/
@@ -2317,6 +2565,130 @@ ULong amd64g_calculate_sse_pmovmskb ( ULong w64hi, ULong w64lo )
 
 
 /*---------------------------------------------------------------*/
+/*--- Helpers for SSE4.2 PCMP{E,I}STR{I,M}                    ---*/
+/*---------------------------------------------------------------*/
+
+static UInt zmask_from_V128 ( V128* arg )
+{
+   UInt i, res = 0;
+   for (i = 0; i < 16; i++) {
+      res |=  ((arg->w8[i] == 0) ? 1 : 0) << i;
+   }
+   return res;
+}
+
+/* Helps with PCMP{I,E}STR{I,M}.
+
+   CALLED FROM GENERATED CODE: DIRTY HELPER(s).  (But not really,
+   actually it could be a clean helper, but for the fact that we can't
+   pass by value 2 x V128 to a clean helper, nor have one returned.)
+   Reads guest state, writes to guest state for the xSTRM cases, no
+   accesses of memory, is a pure function.
+
+   opc_and_imm contains (4th byte of opcode << 8) | the-imm8-byte so
+   the callee knows which I/E and I/M variant it is dealing with and
+   what the specific operation is.  4th byte of opcode is in the range
+   0x60 to 0x63:
+       istri  66 0F 3A 63
+       istrm  66 0F 3A 62
+       estri  66 0F 3A 61
+       estrm  66 0F 3A 60
+
+   gstOffL and gstOffR are the guest state offsets for the two XMM
+   register inputs.  We never have to deal with the memory case since
+   that is handled by pre-loading the relevant value into the fake
+   XMM16 register.
+
+   For ESTRx variants, edxIN and eaxIN hold the values of those two
+   registers.
+
+   In all cases, the bottom 16 bits of the result contain the new
+   OSZACP %rflags values.  For xSTRI variants, bits[31:16] of the
+   result hold the new %ecx value.  For xSTRM variants, the helper
+   writes the result directly to the guest XMM0.
+
+   Declarable side effects: in all cases, reads guest state at
+   [gstOffL, +16) and [gstOffR, +16).  For xSTRM variants, also writes
+   guest_XMM0.
+
+   Is expected to be called with opc_and_imm combinations which have
+   actually been validated, and will assert if otherwise.  The front
+   end should ensure we're only called with verified values.
+*/
+ULong amd64g_dirtyhelper_PCMPxSTRx ( 
+          VexGuestAMD64State* gst,
+          HWord opc4_and_imm,
+          HWord gstOffL, HWord gstOffR,
+          HWord edxIN, HWord eaxIN
+       )
+{
+   HWord opc4 = (opc4_and_imm >> 8) & 0xFF;
+   HWord imm8 = opc4_and_imm & 0xFF;
+   HWord isISTRx = opc4 & 2;
+   HWord isxSTRM = (opc4 & 1) ^ 1;
+   vassert((opc4 & 0xFC) == 0x60); /* 0x60 .. 0x63 */
+   vassert((imm8 & 1) == 0); /* we support byte-size cases only */
+
+   // where the args are
+   V128* argL = (V128*)( ((UChar*)gst) + gstOffL );
+   V128* argR = (V128*)( ((UChar*)gst) + gstOffR );
+
+   /* Create the arg validity masks, either from the vectors
+      themselves or from the supplied edx/eax values. */
+   // FIXME: this is only right for the 8-bit data cases.
+   // At least that is asserted above.
+   UInt zmaskL, zmaskR;
+   if (isISTRx) {
+      zmaskL = zmask_from_V128(argL);
+      zmaskR = zmask_from_V128(argR);
+   } else {
+      Int tmp;
+      tmp = edxIN & 0xFFFFFFFF;
+      if (tmp < -16) tmp = -16;
+      if (tmp > 16)  tmp = 16;
+      if (tmp < 0)   tmp = -tmp;
+      vassert(tmp >= 0 && tmp <= 16);
+      zmaskL = (1 << tmp) & 0xFFFF;
+      tmp = eaxIN & 0xFFFFFFFF;
+      if (tmp < -16) tmp = -16;
+      if (tmp > 16)  tmp = 16;
+      if (tmp < 0)   tmp = -tmp;
+      vassert(tmp >= 0 && tmp <= 16);
+      zmaskR = (1 << tmp) & 0xFFFF;
+   }
+
+   // temp spot for the resulting flags and vector.
+   V128 resV;
+   UInt resOSZACP;
+
+   // do the meyaath
+   Bool ok = compute_PCMPxSTRx ( 
+                &resV, &resOSZACP, argL, argR, 
+                zmaskL, zmaskR, imm8, (Bool)isxSTRM
+             );
+
+   // front end shouldn't pass us any imm8 variants we can't
+   // handle.  Hence:
+   vassert(ok);
+
+   // So, finally we need to get the results back to the caller.
+   // In all cases, the new OSZACP value is the lowest 16 of
+   // the return value.
+   if (isxSTRM) {
+      /* gst->guest_XMM0 = resV; */ // gcc don't like that
+      gst->guest_XMM0[0] = resV.w32[0];
+      gst->guest_XMM0[1] = resV.w32[1];
+      gst->guest_XMM0[2] = resV.w32[2];
+      gst->guest_XMM0[3] = resV.w32[3];
+      return resOSZACP & 0x8D5;
+   } else {
+      UInt newECX = resV.w32[0] & 0xFFFF;
+      return (newECX << 16) | (resOSZACP & 0x8D5);
+   }
+}
+
+
+/*---------------------------------------------------------------*/
 /*--- Helpers for dealing with, and describing,               ---*/
 /*--- guest state as a whole.                                 ---*/
 /*---------------------------------------------------------------*/
@@ -2379,6 +2751,7 @@ void LibVEX_GuestAMD64_initialise ( /*OUT*/VexGuestAMD64State* vex_state )
    SSEZERO(vex_state->guest_XMM13);
    SSEZERO(vex_state->guest_XMM14);
    SSEZERO(vex_state->guest_XMM15);
+   SSEZERO(vex_state->guest_XMM16);
 
 #  undef SSEZERO
 

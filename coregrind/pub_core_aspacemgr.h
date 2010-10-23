@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward
+   Copyright (C) 2000-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -373,10 +373,10 @@ extern Bool VG_(am_relocate_nooverlap_client)( /*OUT*/Bool* need_discard,
 
 #if defined(VGP_ppc32_linux) || defined(VGP_ppc64_linux)
 # define VG_STACK_GUARD_SZB  65536  // 1 or 16 pages
-# define VG_STACK_ACTIVE_SZB 131072 // 2 or 32 pages
+# define VG_STACK_ACTIVE_SZB (4096 * 256) // 1Mb
 #else
 # define VG_STACK_GUARD_SZB  8192   // 2 pages
-# define VG_STACK_ACTIVE_SZB 65536  // 16 pages
+# define VG_STACK_ACTIVE_SZB (4096 * 256) // 1Mb
 #endif
 
 typedef
@@ -396,10 +396,10 @@ typedef
 
 extern VgStack* VG_(am_alloc_VgStack)( /*OUT*/Addr* initial_sp );
 
-/* Figure out how many bytes of the stack's active area have not
-   been used.  Used for estimating if we are close to overflowing it. */
-
-extern Int VG_(am_get_VgStack_unused_szB)( VgStack* stack ); 
+/* Figure out how many bytes of the stack's active area have not been
+   used.  Used for estimating if we are close to overflowing it.  If
+   the free area is larger than 'limit', just return 'limit'. */
+extern SizeT VG_(am_get_VgStack_unused_szB)( VgStack* stack, SizeT limit ); 
 
 // DDD: this is ugly
 #if defined(VGO_darwin)

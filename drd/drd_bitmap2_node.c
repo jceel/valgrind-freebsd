@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -118,7 +118,7 @@ void* DRD_(bm2_alloc_node)(HChar* const ec, const SizeT szB)
    /*
     * If szB < sizeof(struct bitmap2) then this function has been called to
     * allocate an AVL tree root node. Otherwise it has been called to allocate
-    * an AVL tree branch or leaf node. 
+    * an AVL tree branch or leaf node.
     */
    if (szB < sizeof(struct bitmap2))
       return VG_(malloc)(ec, szB);

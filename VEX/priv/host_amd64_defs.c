@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (host_amd64_defs.c) is                        ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                                 host_amd64_defs.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -748,11 +737,12 @@ AMD64Instr* AMD64Instr_CMov64 ( AMD64CondCode cond, AMD64RM* src, HReg dst ) {
    vassert(cond != Acc_ALWAYS);
    return i;
 }
-AMD64Instr* AMD64Instr_MovZLQ ( HReg src, HReg dst ) {
-   AMD64Instr* i     = LibVEX_Alloc(sizeof(AMD64Instr));
-   i->tag            = Ain_MovZLQ;
-   i->Ain.MovZLQ.src = src;
-   i->Ain.MovZLQ.dst = dst;
+AMD64Instr* AMD64Instr_MovxLQ ( Bool syned, HReg src, HReg dst ) {
+   AMD64Instr* i       = LibVEX_Alloc(sizeof(AMD64Instr));
+   i->tag              = Ain_MovxLQ;
+   i->Ain.MovxLQ.syned = syned;
+   i->Ain.MovxLQ.src   = src;
+   i->Ain.MovxLQ.dst   = dst;
    return i;
 }
 AMD64Instr* AMD64Instr_LoadEX ( UChar szSmall, Bool syned,
@@ -820,12 +810,14 @@ AMD64Instr* AMD64Instr_A87Free ( Int nregs )
    vassert(nregs >= 1 && nregs <= 7);
    return i;
 }
-AMD64Instr* AMD64Instr_A87PushPop ( AMD64AMode* addr, Bool isPush )
+AMD64Instr* AMD64Instr_A87PushPop ( AMD64AMode* addr, Bool isPush, UChar szB )
 {
    AMD64Instr* i            = LibVEX_Alloc(sizeof(AMD64Instr));
    i->tag                   = Ain_A87PushPop;
    i->Ain.A87PushPop.addr   = addr;
    i->Ain.A87PushPop.isPush = isPush;
+   i->Ain.A87PushPop.szB    = szB;
+   vassert(szB == 8 || szB == 4);
    return i;
 }
 AMD64Instr* AMD64Instr_A87FpOp ( A87FpOp op )
@@ -1147,11 +1139,11 @@ void ppAMD64Instr ( AMD64Instr* i, Bool mode64 )
          vex_printf(",");
          ppHRegAMD64(i->Ain.CMov64.dst);
          return;
-      case Ain_MovZLQ:
-         vex_printf("movzlq ");
-         ppHRegAMD64_lo32(i->Ain.MovZLQ.src);
+      case Ain_MovxLQ:
+         vex_printf("mov%clq ", i->Ain.MovxLQ.syned ? 's' : 'z');
+         ppHRegAMD64_lo32(i->Ain.MovxLQ.src);
          vex_printf(",");
-         ppHRegAMD64(i->Ain.MovZLQ.dst);
+         ppHRegAMD64(i->Ain.MovxLQ.dst);
          return;
       case Ain_LoadEX:
          if (i->Ain.LoadEX.szSmall==4 && !i->Ain.LoadEX.syned) {
@@ -1206,7 +1198,8 @@ void ppAMD64Instr ( AMD64Instr* i, Bool mode64 )
          vex_printf("ffree %%st(7..%d)", 8 - i->Ain.A87Free.nregs );
          break;
       case Ain_A87PushPop:
-         vex_printf(i->Ain.A87PushPop.isPush ? "fldl " : "fstpl ");
+         vex_printf(i->Ain.A87PushPop.isPush ? "fld%c " : "fstp%c ",
+                    i->Ain.A87PushPop.szB == 4 ? 's' : 'l');
          ppAMD64AMode(i->Ain.A87PushPop.addr);
          break;
       case Ain_A87FpOp:
@@ -1518,9 +1511,9 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addRegUsage_AMD64RM(u, i->Ain.CMov64.src, HRmRead);
          addHRegUse(u, HRmModify, i->Ain.CMov64.dst);
          return;
-      case Ain_MovZLQ:
-         addHRegUse(u, HRmRead,  i->Ain.MovZLQ.src);
-         addHRegUse(u, HRmWrite, i->Ain.MovZLQ.dst);
+      case Ain_MovxLQ:
+         addHRegUse(u, HRmRead,  i->Ain.MovxLQ.src);
+         addHRegUse(u, HRmWrite, i->Ain.MovxLQ.dst);
          return;
       case Ain_LoadEX:
          addRegUsage_AMD64AMode(u, i->Ain.LoadEX.src);
@@ -1748,9 +1741,9 @@ void mapRegs_AMD64Instr ( HRegRemap* m, AMD64Instr* i, Bool mode64 )
          mapRegs_AMD64RM(m, i->Ain.CMov64.src);
          mapReg(m, &i->Ain.CMov64.dst);
          return;
-      case Ain_MovZLQ:
-         mapReg(m, &i->Ain.MovZLQ.src);
-         mapReg(m, &i->Ain.MovZLQ.dst);
+      case Ain_MovxLQ:
+         mapReg(m, &i->Ain.MovxLQ.src);
+         mapReg(m, &i->Ain.MovxLQ.dst);
          return;
       case Ain_LoadEX:
          mapRegs_AMD64AMode(m, i->Ain.LoadEX.src);
@@ -1912,37 +1905,44 @@ Bool isMove_AMD64Instr ( AMD64Instr* i, HReg* src, HReg* dst )
    register allocator.  Note it's critical these don't write the
    condition codes. */
 
-AMD64Instr* genSpill_AMD64 ( HReg rreg, Int offsetB, Bool mode64 )
+void genSpill_AMD64 ( /*OUT*/HInstr** i1, /*OUT*/HInstr** i2,
+                      HReg rreg, Int offsetB, Bool mode64 )
 {
    AMD64AMode* am;
    vassert(offsetB >= 0);
    vassert(!hregIsVirtual(rreg));
    vassert(mode64 == True);
+   *i1 = *i2 = NULL;
    am = AMD64AMode_IR(offsetB, hregAMD64_RBP());
-
    switch (hregClass(rreg)) {
       case HRcInt64:
-         return AMD64Instr_Alu64M ( Aalu_MOV, AMD64RI_Reg(rreg), am );
+         *i1 = AMD64Instr_Alu64M ( Aalu_MOV, AMD64RI_Reg(rreg), am );
+         return;
       case HRcVec128:
-         return AMD64Instr_SseLdSt ( False/*store*/, 16, rreg, am );
+         *i1 = AMD64Instr_SseLdSt ( False/*store*/, 16, rreg, am );
+         return;
       default: 
          ppHRegClass(hregClass(rreg));
          vpanic("genSpill_AMD64: unimplemented regclass");
    }
 }
 
-AMD64Instr* genReload_AMD64 ( HReg rreg, Int offsetB, Bool mode64 )
+void genReload_AMD64 ( /*OUT*/HInstr** i1, /*OUT*/HInstr** i2,
+                       HReg rreg, Int offsetB, Bool mode64 )
 {
    AMD64AMode* am;
    vassert(offsetB >= 0);
    vassert(!hregIsVirtual(rreg));
    vassert(mode64 == True);
+   *i1 = *i2 = NULL;
    am = AMD64AMode_IR(offsetB, hregAMD64_RBP());
    switch (hregClass(rreg)) {
       case HRcInt64:
-         return AMD64Instr_Alu64R ( Aalu_MOV, AMD64RMI_Mem(am), rreg );
+         *i1 = AMD64Instr_Alu64R ( Aalu_MOV, AMD64RMI_Mem(am), rreg );
+         return;
       case HRcVec128:
-         return AMD64Instr_SseLdSt ( True/*load*/, 16, rreg, am );
+         *i1 = AMD64Instr_SseLdSt ( True/*load*/, 16, rreg, am );
+         return;
       default: 
          ppHRegClass(hregClass(rreg));
          vpanic("genReload_AMD64: unimplemented regclass");
@@ -2335,10 +2335,26 @@ Int emit_AMD64Instr ( UChar* buf, Int nbuf, AMD64Instr* i,
       if (i->Ain.Alu64R.op == Aalu_MOV) {
          switch (i->Ain.Alu64R.src->tag) {
             case Armi_Imm:
-               *p++ = toUChar(0x48 + (1 & iregBit3(i->Ain.Alu64R.dst)));
-               *p++ = 0xC7;
-               *p++ = toUChar(0xC0 + iregBits210(i->Ain.Alu64R.dst));
-               p = emit32(p, i->Ain.Alu64R.src->Armi.Imm.imm32);
+               if (0 == (i->Ain.Alu64R.src->Armi.Imm.imm32 & ~0xFFF)) {
+                  /* Actually we could use this form for constants in
+                     the range 0 through 0x7FFFFFFF inclusive, but
+                     limit it to a small range for verifiability
+                     purposes. */
+                  /* Generate "movl $imm32, 32-bit-register" and let
+                     the default zero-extend rule cause the upper half
+                     of the dst to be zeroed out too.  This saves 1
+                     and sometimes 2 bytes compared to the more
+                     obvious encoding in the 'else' branch. */
+                  if (1 & iregBit3(i->Ain.Alu64R.dst))
+                     *p++ = 0x41;
+                  *p++ = 0xB8 + iregBits210(i->Ain.Alu64R.dst);
+                  p = emit32(p, i->Ain.Alu64R.src->Armi.Imm.imm32);
+               } else {
+                  *p++ = toUChar(0x48 + (1 & iregBit3(i->Ain.Alu64R.dst)));
+                  *p++ = 0xC7;
+                  *p++ = toUChar(0xC0 + iregBits210(i->Ain.Alu64R.dst));
+                  p = emit32(p, i->Ain.Alu64R.src->Armi.Imm.imm32);
+               }
                goto done;
             case Armi_Reg:
                *p++ = rexAMode_R( i->Ain.Alu64R.src->Armi.Reg.reg,
@@ -2815,13 +2831,22 @@ Int emit_AMD64Instr ( UChar* buf, Int nbuf, AMD64Instr* i,
       }
       break;
 
-   case Ain_MovZLQ:
-      /* Produce a 32-bit reg-reg move, since the implicit zero-extend
-         does what we want. */
-      *p++ = clearWBit (
-                rexAMode_R(i->Ain.MovZLQ.src, i->Ain.MovZLQ.dst));
-      *p++ = 0x89;
-      p = doAMode_R(p, i->Ain.MovZLQ.src, i->Ain.MovZLQ.dst);
+   case Ain_MovxLQ:
+      /* No, _don't_ ask me why the sense of the args has to be
+         different in the S vs Z case.  I don't know. */
+      if (i->Ain.MovxLQ.syned) {
+         /* Need REX.W = 1 here, but rexAMode_R does that for us. */
+         *p++ = rexAMode_R(i->Ain.MovxLQ.dst, i->Ain.MovxLQ.src);
+         *p++ = 0x63;
+         p = doAMode_R(p, i->Ain.MovxLQ.dst, i->Ain.MovxLQ.src);
+      } else {
+         /* Produce a 32-bit reg-reg move, since the implicit
+            zero-extend does what we want. */
+         *p++ = clearWBit (
+                   rexAMode_R(i->Ain.MovxLQ.src, i->Ain.MovxLQ.dst));
+         *p++ = 0x89;
+         p = doAMode_R(p, i->Ain.MovxLQ.src, i->Ain.MovxLQ.dst);
+      }
       goto done;
 
    case Ain_LoadEX:
@@ -2936,17 +2961,18 @@ Int emit_AMD64Instr ( UChar* buf, Int nbuf, AMD64Instr* i,
       goto done;
 
    case Ain_A87PushPop:
+      vassert(i->Ain.A87PushPop.szB == 8 || i->Ain.A87PushPop.szB == 4);
       if (i->Ain.A87PushPop.isPush) {
-         /* Load from memory into %st(0): fldl amode */
+         /* Load from memory into %st(0): flds/fldl amode */
          *p++ = clearWBit(
                    rexAMode_M(fake(0), i->Ain.A87PushPop.addr) );
-         *p++ = 0xDD;
+         *p++ = i->Ain.A87PushPop.szB == 4 ? 0xD9 : 0xDD;
 	 p = doAMode_M(p, fake(0)/*subopcode*/, i->Ain.A87PushPop.addr);
       } else {
-         /* Dump %st(0) to memory: fstpl amode */
+         /* Dump %st(0) to memory: fstps/fstpl amode */
          *p++ = clearWBit(
                    rexAMode_M(fake(3), i->Ain.A87PushPop.addr) );
-         *p++ = 0xDD;
+         *p++ = i->Ain.A87PushPop.szB == 4 ? 0xD9 : 0xDD;
          p = doAMode_M(p, fake(3)/*subopcode*/, i->Ain.A87PushPop.addr);
          goto done;
       }

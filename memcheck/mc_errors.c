@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -768,6 +768,7 @@ void MC_(pp_Error) ( Error* err )
    for the --workaround-gcc296-bugs kludge. */
 static Bool is_just_below_ESP( Addr esp, Addr aa )
 {
+   esp -= VG_STACK_REDZONE_SZB;
    if (esp > aa && (esp - aa) <= VG_GCC296_BUG_STACK_SLOP)
       return True;
    else

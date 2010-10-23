@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Nicholas Nethercote
+   Copyright (C) 2000-2010 Nicholas Nethercote
       njn@valgrind.org
 
    This program is free software; you can redistribute it and/or
@@ -251,6 +251,17 @@ static SysRes do_clone ( ThreadId ptid,
    ctst->sig_mask = ptst->sig_mask;
    ctst->tmp_sig_mask = ptst->sig_mask;
 
+   /* Start the child with its threadgroup being the same as the
+      parent's.  This is so that any exit_group calls that happen
+      after the child is created but before it sets its
+      os_state.threadgroup field for real (in thread_wrapper in
+      syswrap-linux.c), really kill the new thread.  a.k.a this avoids
+      a race condition in which the thread is unkillable (via
+      exit_group) because its threadgroup is not set.  The race window
+      is probably only a few hundred or a few thousand cycles long.
+      See #226116. */
+   ctst->os_state.threadgroup = ptst->os_state.threadgroup;
+
    /* We don't really know where the client stack is, because its
       allocated by the client.  The best we can do is look at the
       memory mappings and try to derive some useful information.  We
@@ -349,6 +360,7 @@ DECL_TEMPLATE(amd64_linux, sys_setsockopt);
 DECL_TEMPLATE(amd64_linux, sys_getsockopt);
 DECL_TEMPLATE(amd64_linux, sys_connect);
 DECL_TEMPLATE(amd64_linux, sys_accept);
+DECL_TEMPLATE(amd64_linux, sys_accept4);
 DECL_TEMPLATE(amd64_linux, sys_sendto);
 DECL_TEMPLATE(amd64_linux, sys_recvfrom);
 DECL_TEMPLATE(amd64_linux, sys_sendmsg);
@@ -684,6 +696,23 @@ POST(sys_accept)
    SET_STATUS_from_SysRes(r);
 }
 
+PRE(sys_accept4)
+{
+   *flags |= SfMayBlock;
+   PRINT("sys_accept4 ( %ld, %#lx, %ld, %ld )",ARG1,ARG2,ARG3,ARG4);
+   PRE_REG_READ4(long, "accept4",
+                 int, s, struct sockaddr *, addr, int, *addrlen, int, flags);
+   ML_(generic_PRE_sys_accept)(tid, ARG1,ARG2,ARG3);
+}
+POST(sys_accept4)
+{
+   SysRes r;
+   vg_assert(SUCCESS);
+   r = ML_(generic_POST_sys_accept)(tid, VG_(mk_SysRes_Success)(RES),
+                                         ARG1,ARG2,ARG3);
+   SET_STATUS_from_SysRes(r);
+}
+
 PRE(sys_sendto)
 {
    *flags |= SfMayBlock;
@@ -785,7 +814,7 @@ PRE(sys_socketpair)
 {
    PRINT("sys_socketpair ( %ld, %ld, %ld, %#lx )",ARG1,ARG2,ARG3,ARG4);
    PRE_REG_READ4(long, "socketpair",
-                 int, d, int, type, int, protocol, int [2], sv);
+                 int, d, int, type, int, protocol, int*, sv);
    ML_(generic_PRE_sys_socketpair)(tid, ARG1,ARG2,ARG3,ARG4);
 }
 POST(sys_socketpair)
@@ -848,11 +877,11 @@ PRE(sys_semctl)
                     int, semid, int, semnum, int, cmd);
       break;
    }
-   ML_(generic_PRE_sys_semctl)(tid, ARG1,ARG2,ARG3,ARG4);
+   ML_(generic_PRE_sys_semctl)(tid, ARG1,ARG2,ARG3|VKI_IPC_64,ARG4);
 }
 POST(sys_semctl)
 {
-   ML_(generic_POST_sys_semctl)(tid, RES,ARG1,ARG2,ARG3,ARG4);
+   ML_(generic_POST_sys_semctl)(tid, RES,ARG1,ARG2,ARG3|VKI_IPC_64,ARG4);
 }
 
 PRE(sys_msgget)
@@ -938,11 +967,11 @@ PRE(sys_shmctl)
    PRINT("sys_shmctl ( %ld, %ld, %#lx )",ARG1,ARG2,ARG3);
    PRE_REG_READ3(long, "shmctl",
                  int, shmid, int, cmd, struct shmid_ds *, buf);
-   ML_(generic_PRE_sys_shmctl)(tid, ARG1,ARG2,ARG3);
+   ML_(generic_PRE_sys_shmctl)(tid, ARG1,ARG2|VKI_IPC_64,ARG3);
 }
 POST(sys_shmctl)
 {
-   ML_(generic_POST_sys_shmctl)(tid, RES,ARG1,ARG2,ARG3);
+   ML_(generic_POST_sys_shmctl)(tid, RES,ARG1,ARG2|VKI_IPC_64,ARG3);
 }
 
 PRE(sys_fadvise64)
@@ -1022,7 +1051,7 @@ POST(sys_syscall184)
 // When implementing these wrappers, you need to work out if the wrapper is
 // generic, Linux-only (but arch-independent), or AMD64/Linux only.
 
-const SyscallTableEntry ML_(syscall_table)[] = {
+static SyscallTableEntry syscall_table[] = {
    GENXY(__NR_read,              sys_read),           // 0 
    GENX_(__NR_write,             sys_write),          // 1 
    GENXY(__NR_open,              sys_open),           // 2 
@@ -1200,20 +1229,20 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINX_(__NR_sched_getscheduler,      sys_sched_getscheduler),      // 145 
    LINX_(__NR_sched_get_priority_max,  sys_sched_get_priority_max),  // 146 
    LINX_(__NR_sched_get_priority_min,  sys_sched_get_priority_min),  // 147 
-   //LINX?(__NR_sched_rr_get_interval,   sys_sched_rr_get_interval),   // 148 
+   LINXY(__NR_sched_rr_get_interval,   sys_sched_rr_get_interval),   // 148 
    GENX_(__NR_mlock,                   sys_mlock),                   // 149 
 
    GENX_(__NR_munlock,           sys_munlock),        // 150 
    GENX_(__NR_mlockall,          sys_mlockall),       // 151 
    LINX_(__NR_munlockall,        sys_munlockall),     // 152 
-   //   (__NR_vhangup,           sys_vhangup),        // 153 
+   LINX_(__NR_vhangup,           sys_vhangup),        // 153 
    //   (__NR_modify_ldt,        sys_modify_ldt),     // 154 
 
    //   (__NR_pivot_root,        sys_pivot_root),     // 155 
    LINXY(__NR__sysctl,           sys_sysctl),         // 156 
    LINXY(__NR_prctl,             sys_prctl),          // 157 
    PLAX_(__NR_arch_prctl,	 sys_arch_prctl),     // 158 
-   //   (__NR_adjtimex,          sys_adjtimex),       // 159 
+   LINXY(__NR_adjtimex,          sys_adjtimex),       // 159 
 
    GENX_(__NR_setrlimit,         sys_setrlimit),      // 160 
    GENX_(__NR_chroot,            sys_chroot),         // 161 
@@ -1247,7 +1276,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    //   (__NR_security,          sys_ni_syscall),     // 185 
    LINX_(__NR_gettid,            sys_gettid),         // 186 
-   //   (__NR_readahead,         sys_readahead),      // 187 
+   LINX_(__NR_readahead,         sys_readahead),      // 187 
    LINX_(__NR_setxattr,          sys_setxattr),       // 188 
    LINX_(__NR_lsetxattr,         sys_lsetxattr),      // 189 
 
@@ -1314,7 +1343,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINXY(__NR_mq_open,           sys_mq_open),        // 240 
    LINX_(__NR_mq_unlink,         sys_mq_unlink),      // 241 
    LINX_(__NR_mq_timedsend,      sys_mq_timedsend),   // 242 
-   LINX_(__NR_mq_timedreceive,   sys_mq_timedreceive),// 243 
+   LINXY(__NR_mq_timedreceive,   sys_mq_timedreceive),// 243 
    LINX_(__NR_mq_notify,         sys_mq_notify),      // 244
 
    LINXY(__NR_mq_getsetattr,     sys_mq_getsetattr),  // 245 
@@ -1353,7 +1382,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINX_(__NR_set_robust_list,	 sys_set_robust_list),  // 273
    LINXY(__NR_get_robust_list,	 sys_get_robust_list),  // 274
 
-//   LINX_(__NR_splice,            sys_ni_syscall),       // 275
+   LINX_(__NR_splice,            sys_splice),           // 275
 //   LINX_(__NR_tee,               sys_ni_syscall),       // 276
    LINX_(__NR_sync_file_range,   sys_sync_file_range),  // 277
 //   LINX_(__NR_vmsplice,          sys_ni_syscall),       // 278
@@ -1368,18 +1397,38 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINX_(__NR_fallocate,         sys_fallocate),        // 285
    LINXY(__NR_timerfd_settime,   sys_timerfd_settime),  // 286
    LINXY(__NR_timerfd_gettime,   sys_timerfd_gettime),  // 287
-   //   (__NR_paccept,           sys_ni_syscall)        // 288
+   PLAXY(__NR_accept4,           sys_accept4),          // 288
    LINXY(__NR_signalfd4,         sys_signalfd4),        // 289
 
    LINX_(__NR_eventfd2,          sys_eventfd2),         // 290
    LINXY(__NR_epoll_create1,     sys_epoll_create1),    // 291
-   //   (__NR_dup3,              sys_ni_syscall)        // 292
-   LINXY(__NR_pipe2,             sys_pipe2)             // 293
-   //   (__NR_inotify_init1,     sys_ni_syscall)        // 294
+   LINXY(__NR_dup3,              sys_dup3),             // 292
+   LINXY(__NR_pipe2,             sys_pipe2),            // 293
+   LINXY(__NR_inotify_init1,     sys_inotify_init1),    // 294
+
+   LINXY(__NR_preadv,            sys_preadv),           // 295
+   LINX_(__NR_pwritev,           sys_pwritev),          // 296
+   LINXY(__NR_rt_tgsigqueueinfo, sys_rt_tgsigqueueinfo),// 297
+   LINXY(__NR_perf_counter_open, sys_perf_counter_open) // 298
 };
 
-const UInt ML_(syscall_table_size) = 
-            sizeof(ML_(syscall_table)) / sizeof(ML_(syscall_table)[0]);
+SyscallTableEntry* ML_(get_linux_syscall_entry) ( UInt sysno )
+{
+   const UInt syscall_table_size
+      = sizeof(syscall_table) / sizeof(syscall_table[0]);
+
+   /* Is it in the contiguous initial section of the table? */
+   if (sysno < syscall_table_size) {
+      SyscallTableEntry* sys = &syscall_table[sysno];
+      if (sys->before == NULL)
+         return NULL; /* no entry */
+      else
+         return sys;
+   }
+
+   /* Can't find a wrapper */
+   return NULL;
+}
 
 #endif // defined(VGP_amd64_linux)
 

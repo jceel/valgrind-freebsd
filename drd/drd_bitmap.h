@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -31,6 +31,9 @@
 #include "pub_tool_basics.h"
 #include "pub_tool_oset.h"
 #include "pub_tool_libcbase.h"
+#ifdef ENABLE_DRD_CONSISTENCY_CHECKS
+#include "pub_tool_libcassert.h"
+#endif
 
 
 /* Bitmap representation. A bitmap is a data structure in which two bits are
@@ -41,7 +44,7 @@
 
 /* Client addresses are split into bitfields as follows:
  * ------------------------------------------------------
- * | Address MSB |      Address LSB      | Ignored bits | 
+ * | Address MSB |      Address LSB      | Ignored bits |
  * ------------------------------------------------------
  * | Address MSB | UWord MSB | UWord LSB | Ignored bits |
  * ------------------------------------------------------
@@ -134,7 +137,7 @@ Addr make_address(const UWord a1, const UWord a0)
 #define BITS_PER_UWORD (8U * sizeof(UWord))
 
 /** Log2 of BITS_PER_UWORD. */
-#if defined(VGA_x86) || defined(VGA_ppc32)
+#if defined(VGA_x86) || defined(VGA_ppc32) || defined(VGA_arm)
 #define BITS_PER_BITS_PER_UWORD 5
 #elif defined(VGA_amd64) || defined(VGA_ppc64)
 #define BITS_PER_BITS_PER_UWORD 6
@@ -281,7 +284,7 @@ static __inline__ void bm0_clear_range(UWord* bm0,
    tl_assert(size == 0 || uword_msb(a) == uword_msb(a + size - 1));
 #endif
    /*
-    * Note: although the expression below yields a correct result even if 
+    * Note: although the expression below yields a correct result even if
     * size == 0, do not touch bm0[] if size == 0 because this might otherwise
     * cause an access of memory just past the end of the bm0[] array.
     */

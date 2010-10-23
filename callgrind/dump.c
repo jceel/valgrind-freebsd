@@ -6,7 +6,7 @@
 /*
    This file is part of Callgrind, a Valgrind tool for call tracing.
 
-   Copyright (C) 2002-2009, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
+   Copyright (C) 2002-2010, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -55,7 +55,7 @@ EventMapping* CLG_(dumpmap) = 0;
  *  print_fn_pos, fprint_apos, fprint_fcost, fprint_jcc,
  *  fprint_fcc_ln, dump_run_info, dump_state_info
  */
-static Char outbuf[FILENAME_LEN + FN_NAME_LEN + OBJ_NAME_LEN];
+static Char outbuf[FILENAME_LEN + FN_NAME_LEN + OBJ_NAME_LEN + COSTS_LEN];
 
 Int CLG_(get_dump_counter)(void)
 {

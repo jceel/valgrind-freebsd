@@ -8,7 +8,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2005-2009 Apple Inc.
+   Copyright (C) 2005-2010 Apple Inc.
       Greg Parker gparker@apple.com
 
    This program is free software; you can redistribute it and/or
@@ -369,6 +369,7 @@ void read_symtab( /*OUT*/XArray* /* DiSym */ syms,
                    di->text_avma+di->text_size - sym_addr;
       risym.name = ML_(addStr)(di, name, -1);
       risym.isText = True;
+      risym.isIFunc = False;
       // Lots of user function names get prepended with an underscore.  Eg. the
       // function 'f' becomes the symbol '_f'.  And the "below main"
       // function is called "start".  So we skip the leading underscore, and
@@ -947,10 +948,12 @@ Bool ML_(read_macho_debug_info)( struct _DebugInfo* di )
      HChar* cmd = ML_(dinfo_zalloc)( "di.readmacho.tmp1", 
                                      VG_(strlen)(dsymutil)
                                      + VG_(strlen)(di->filename)
-                                     + 30 /* misc */ );
+                                     + 32 /* misc */ );
      VG_(strcpy)(cmd, dsymutil);
      if (0) VG_(strcat)(cmd, "--verbose ");
+     VG_(strcat)(cmd, "\"");
      VG_(strcat)(cmd, di->filename);
+     VG_(strcat)(cmd, "\"");
      VG_(message)(Vg_DebugMsg, "run: %s\n", cmd);
      r = VG_(system)( cmd );
      if (r)

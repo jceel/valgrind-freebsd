@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward
+   Copyright (C) 2000-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -212,7 +212,8 @@ void VG_(DebugInfo_syms_getidx)  ( const DebugInfo *di,
                                    /*OUT*/Addr*   tocptr,
                                    /*OUT*/UInt*   size,
                                    /*OUT*/HChar** name,
-                                   /*OUT*/Bool*   isText );
+                                   /*OUT*/Bool*   isText,
+                                   /*OUT*/Bool*   isIFunc );
 
 /* A simple enumeration to describe the 'kind' of various kinds of
    segments that arise from the mapping of object files. */

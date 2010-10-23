@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -181,6 +181,7 @@ static DrdThreadId DRD_(VgThreadIdToNewDrdThreadId)(const ThreadId tid)
          DRD_(g_threadinfo)[i].stack_startup = 0;
          DRD_(g_threadinfo)[i].stack_max     = 0;
          DRD_(thread_set_name)(i, "");
+         DRD_(g_threadinfo)[i].on_alt_stack        = False;
          DRD_(g_threadinfo)[i].is_recording_loads  = True;
          DRD_(g_threadinfo)[i].is_recording_stores = True;
          DRD_(g_threadinfo)[i].pthread_create_nesting_level = 0;
@@ -420,8 +421,33 @@ SizeT DRD_(thread_get_stack_size)(const DrdThreadId tid)
    return DRD_(g_threadinfo)[tid].stack_size;
 }
 
+Bool DRD_(thread_get_on_alt_stack)(const DrdThreadId tid)
+{
+   tl_assert(0 <= (int)tid && tid < DRD_N_THREADS
+             && tid != DRD_INVALID_THREADID);
+   return DRD_(g_threadinfo)[tid].on_alt_stack;
+}
+
+void DRD_(thread_set_on_alt_stack)(const DrdThreadId tid,
+                                   const Bool on_alt_stack)
+{
+   tl_assert(0 <= (int)tid && tid < DRD_N_THREADS
+             && tid != DRD_INVALID_THREADID);
+   tl_assert(on_alt_stack == !!on_alt_stack);
+   DRD_(g_threadinfo)[tid].on_alt_stack = on_alt_stack;
+}
+
+Int DRD_(thread_get_threads_on_alt_stack)(void)
+{
+   int i, n = 0;
+
+   for (i = 1; i < DRD_N_THREADS; i++)
+      n += DRD_(g_threadinfo)[i].on_alt_stack;
+   return n;
+}
+
 /**
- * Clean up thread-specific data structures. Call this just after 
+ * Clean up thread-specific data structures. Call this just after
  * pthread_join().
  */
 void DRD_(thread_delete)(const DrdThreadId tid)
@@ -561,7 +587,7 @@ void DRD_(thread_set_name)(const DrdThreadId tid, const char* const name)
 {
    tl_assert(0 <= (int)tid && tid < DRD_N_THREADS
              && tid != DRD_INVALID_THREADID);
-   
+
    if (name == NULL || name[0] == 0)
       VG_(snprintf)(DRD_(g_threadinfo)[tid].name,
                     sizeof(DRD_(g_threadinfo)[tid].name),
@@ -602,7 +628,7 @@ void DRD_(thread_set_running_tid)(const ThreadId vg_tid,
 {
    tl_assert(vg_tid != VG_INVALID_THREADID);
    tl_assert(drd_tid != DRD_INVALID_THREADID);
-   
+
    if (vg_tid != s_vg_running_tid)
    {
       if (s_trace_context_switches
@@ -1104,7 +1130,8 @@ void DRD_(thread_new_segment_and_combine_vc)(DrdThreadId tid, const Segment* sg)
  * [ a1, a2 [, e.g. because of a call to free() or a stack pointer
  * increase.
  */
-void DRD_(thread_stop_using_mem)(const Addr a1, const Addr a2)
+void DRD_(thread_stop_using_mem)(const Addr a1, const Addr a2,
+                                 const Bool dont_clear_access)
 {
    DrdThreadId other_user;
    unsigned i;
@@ -1119,13 +1146,18 @@ void DRD_(thread_stop_using_mem)(const Addr a1, const Addr a2)
          if (other_user == DRD_INVALID_THREADID
              && i != DRD_(g_drd_running_tid))
          {
-            if (UNLIKELY(DRD_(bm_test_and_clear)(DRD_(sg_bm)(p), a1, a2)))
+            if (UNLIKELY((!dont_clear_access
+                          && DRD_(bm_test_and_clear)(DRD_(sg_bm)(p), a1, a2))
+                         || (dont_clear_access
+                             && DRD_(bm_has_any_access)(DRD_(sg_bm)(p), a1, a2))
+                         ))
             {
                other_user = i;
             }
             continue;
          }
-         DRD_(bm_clear)(DRD_(sg_bm)(p), a1, a2);
+         if (!dont_clear_access)
+            DRD_(bm_clear)(DRD_(sg_bm)(p), a1, a2);
       }
    }
 
@@ -1241,8 +1273,8 @@ thread_report_conflicting_segments_segment(const DrdThreadId tid,
          for (q = DRD_(g_threadinfo)[i].last; q; q = q->prev)
          {
             /*
-             * Since q iterates over the segments of thread i in order of 
-             * decreasing vector clocks, if q->vc <= p->vc, then 
+             * Since q iterates over the segments of thread i in order of
+             * decreasing vector clocks, if q->vc <= p->vc, then
              * q->next->vc <= p->vc will also hold. Hence, break out of the
              * loop once this condition is met.
              */

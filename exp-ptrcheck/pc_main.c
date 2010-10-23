@@ -9,7 +9,7 @@
    This file is part of Ptrcheck, a Valgrind tool for checking pointer
    use in programs.
 
-   Copyright (C) 2008-2009 OpenWorks Ltd
+   Copyright (C) 2008-2010 OpenWorks Ltd
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -127,10 +127,10 @@ static void pc_post_clo_init ( void )
    sg_post_clo_init();
 #  if defined(VGA_x86) || defined(VGA_amd64)
    /* nothing */
-#  elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#  elif defined(VGA_ppc32) || defined(VGA_ppc64) || defined(VGA_arm)
    if (VG_(clo_verbosity) >= 1 && sg_clo_enable_sg_checks) {
       VG_(message)(Vg_UserMsg, 
-         "WARNING: exp-ptrcheck on ppc32/ppc64 platforms: "
+         "WARNING: exp-ptrcheck on ppc32/ppc64/arm platforms: "
          "stack and global array\n");
       VG_(message)(Vg_UserMsg, 
          "WARNING: checking is not currently supported.  "
@@ -155,10 +155,10 @@ static void pc_pre_clo_init(void)
 
    VG_(details_name)            ("exp-ptrcheck");
    VG_(details_version)         (NULL);
-   VG_(details_description)     ("a heap, stack & global array "
+   VG_(details_description)     ("a heap, stack and global array "
                                  "overrun detector");
    VG_(details_copyright_author)(
-      "Copyright (C) 2003-2009, and GNU GPL'd, by OpenWorks Ltd et al.");
+      "Copyright (C) 2003-2010, and GNU GPL'd, by OpenWorks Ltd et al.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 496 );
 

@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -398,6 +398,8 @@ void assign ( HChar cat, MCEnv* mce, IRTemp tmp, IRExpr* expr ) {
 }
 
 /* build various kinds of expressions */
+#define triop(_op, _arg1, _arg2, _arg3) \
+                                 IRExpr_Triop((_op),(_arg1),(_arg2),(_arg3))
 #define binop(_op, _arg1, _arg2) IRExpr_Binop((_op),(_arg1),(_arg2))
 #define unop(_op, _arg)          IRExpr_Unop((_op),(_arg))
 #define mkU8(_n)                 IRExpr_Const(IRConst_U8(_n))
@@ -1392,10 +1394,22 @@ IRAtom* mkLazy3 ( MCEnv* mce, IRType finalVty,
    /* I32 x I64 x I64 -> I32 */
    if (t1 == Ity_I32 && t2 == Ity_I64 && t3 == Ity_I64 
        && finalVty == Ity_I32) {
-      if (0) VG_(printf)("mkLazy3: I32 x I64 x I64 -> I64\n");
+      if (0) VG_(printf)("mkLazy3: I32 x I64 x I64 -> I32\n");
       at = mkPCastTo(mce, Ity_I64, va1);
       at = mkUifU(mce, Ity_I64, at, va2);
       at = mkUifU(mce, Ity_I64, at, va3);
+      at = mkPCastTo(mce, Ity_I32, at);
+      return at;
+   }
+
+   /* I32 x I32 x I32 -> I32 */
+   /* 32-bit FP idiom, as (eg) happens on ARM */
+   if (t1 == Ity_I32 && t2 == Ity_I32 && t3 == Ity_I32 
+       && finalVty == Ity_I32) {
+      if (0) VG_(printf)("mkLazy3: I32 x I32 x I32 -> I32\n");
+      at = va1;
+      at = mkUifU(mce, Ity_I32, at, va2);
+      at = mkUifU(mce, Ity_I32, at, va3);
       at = mkPCastTo(mce, Ity_I32, at);
       return at;
    }
@@ -1710,6 +1724,16 @@ static IRAtom* mkPCast8x8 ( MCEnv* mce, IRAtom* at )
    return assignNew('V', mce, Ity_I64, unop(Iop_CmpNEZ8x8, at));
 }
 
+static IRAtom* mkPCast16x2 ( MCEnv* mce, IRAtom* at )
+{
+   return assignNew('V', mce, Ity_I32, unop(Iop_CmpNEZ16x2, at));
+}
+
+static IRAtom* mkPCast8x4 ( MCEnv* mce, IRAtom* at )
+{
+   return assignNew('V', mce, Ity_I32, unop(Iop_CmpNEZ8x4, at));
+}
+
 
 /* Here's a simple scheme capable of handling ops derived from SSE1
    code and while only generating ops that can be efficiently
@@ -1837,6 +1861,28 @@ IRAtom* unary64F0x2 ( MCEnv* mce, IRAtom* vatomX )
    return at;
 }
 
+/* --- --- ... and ... 32Fx2 versions of the same --- --- */
+
+static
+IRAtom* binary32Fx2 ( MCEnv* mce, IRAtom* vatomX, IRAtom* vatomY )
+{
+   IRAtom* at;
+   tl_assert(isShadowAtom(mce, vatomX));
+   tl_assert(isShadowAtom(mce, vatomY));
+   at = mkUifU64(mce, vatomX, vatomY);
+   at = assignNew('V', mce, Ity_I64, mkPCast32x2(mce, at));
+   return at;
+}
+
+static
+IRAtom* unary32Fx2 ( MCEnv* mce, IRAtom* vatomX )
+{
+   IRAtom* at;
+   tl_assert(isShadowAtom(mce, vatomX));
+   at = assignNew('V', mce, Ity_I64, mkPCast32x2(mce, vatomX));
+   return at;
+}
+
 /* --- --- Vector saturated narrowing --- --- */
 
 /* This is quite subtle.  What to do is simple:
@@ -1904,6 +1950,54 @@ IRAtom* vectorNarrow64 ( MCEnv* mce, IROp narrow_op,
    at2 = assignNew('V', mce, Ity_I64, pcast(mce, vatom2));
    at3 = assignNew('V', mce, Ity_I64, binop(narrow_op, at1, at2));
    return at3;
+}
+
+static
+IRAtom* vectorShortenV128 ( MCEnv* mce, IROp shorten_op,
+                          IRAtom* vatom1)
+{
+   IRAtom *at1, *at2;
+   IRAtom* (*pcast)( MCEnv*, IRAtom* );
+   switch (shorten_op) {
+      case Iop_Shorten16x8: pcast = mkPCast16x8; break;
+      case Iop_Shorten32x4: pcast = mkPCast32x4; break;
+      case Iop_Shorten64x2: pcast = mkPCast64x2; break;
+      case Iop_QShortenS16Sx8: pcast = mkPCast16x8; break;
+      case Iop_QShortenU16Sx8: pcast = mkPCast16x8; break;
+      case Iop_QShortenU16Ux8: pcast = mkPCast16x8; break;
+      case Iop_QShortenS32Sx4: pcast = mkPCast32x4; break;
+      case Iop_QShortenU32Sx4: pcast = mkPCast32x4; break;
+      case Iop_QShortenU32Ux4: pcast = mkPCast32x4; break;
+      case Iop_QShortenS64Sx2: pcast = mkPCast64x2; break;
+      case Iop_QShortenU64Sx2: pcast = mkPCast64x2; break;
+      case Iop_QShortenU64Ux2: pcast = mkPCast64x2; break;
+      default: VG_(tool_panic)("vectorShortenV128");
+   }
+   tl_assert(isShadowAtom(mce,vatom1));
+   at1 = assignNew('V', mce, Ity_V128, pcast(mce, vatom1));
+   at2 = assignNew('V', mce, Ity_I64, unop(shorten_op, at1));
+   return at2;
+}
+
+static
+IRAtom* vectorLongenI64 ( MCEnv* mce, IROp longen_op,
+                           IRAtom* vatom1)
+{
+   IRAtom *at1, *at2;
+   IRAtom* (*pcast)( MCEnv*, IRAtom* );
+   switch (longen_op) {
+      case Iop_Longen8Ux8: pcast = mkPCast16x8; break;
+      case Iop_Longen8Sx8: pcast = mkPCast16x8; break;
+      case Iop_Longen16Ux4: pcast = mkPCast32x4; break;
+      case Iop_Longen16Sx4: pcast = mkPCast32x4; break;
+      case Iop_Longen32Ux2: pcast = mkPCast64x2; break;
+      case Iop_Longen32Sx2: pcast = mkPCast64x2; break;
+      default: VG_(tool_panic)("vectorLongenI64");
+   }
+   tl_assert(isShadowAtom(mce,vatom1));
+   at1 = assignNew('V', mce, Ity_V128, unop(longen_op, vatom1));
+   at2 = assignNew('V', mce, Ity_V128, pcast(mce, at1));
+   return at2;
 }
 
 
@@ -1975,6 +2069,35 @@ IRAtom* binary32Ix2 ( MCEnv* mce, IRAtom* vatom1, IRAtom* vatom2 )
    IRAtom* at;
    at = mkUifU64(mce, vatom1, vatom2);
    at = mkPCast32x2(mce, at);
+   return at;   
+}
+
+static
+IRAtom* binary64Ix1 ( MCEnv* mce, IRAtom* vatom1, IRAtom* vatom2 )
+{
+   IRAtom* at;
+   at = mkUifU64(mce, vatom1, vatom2);
+   at = mkPCastTo(mce, Ity_I64, at);
+   return at;
+}
+
+/* --- 32-bit versions --- */
+
+static
+IRAtom* binary8Ix4 ( MCEnv* mce, IRAtom* vatom1, IRAtom* vatom2 )
+{
+   IRAtom* at;
+   at = mkUifU32(mce, vatom1, vatom2);
+   at = mkPCast8x4(mce, at);
+   return at;   
+}
+
+static
+IRAtom* binary16Ix2 ( MCEnv* mce, IRAtom* vatom1, IRAtom* vatom2 )
+{
+   IRAtom* at;
+   at = mkUifU32(mce, vatom1, vatom2);
+   at = mkPCast16x2(mce, at);
    return at;   
 }
 
@@ -2059,6 +2182,23 @@ IRAtom* expr2vbits_Triop ( MCEnv* mce,
       case Iop_PRem1C3210F64:
          /* I32(rm) x F64 x F64 -> I32 */
          return mkLazy3(mce, Ity_I32, vatom1, vatom2, vatom3);
+      case Iop_AddF32:
+      case Iop_SubF32:
+      case Iop_MulF32:
+      case Iop_DivF32:
+         /* I32(rm) x F32 x F32 -> I32 */
+         return mkLazy3(mce, Ity_I32, vatom1, vatom2, vatom3);
+      case Iop_ExtractV128:
+         complainIfUndefined(mce, atom3);
+         return assignNew('V', mce, Ity_V128, triop(op, vatom1, vatom2, atom3));
+      case Iop_Extract64:
+         complainIfUndefined(mce, atom3);
+         return assignNew('V', mce, Ity_I64, triop(op, vatom1, vatom2, atom3));
+      case Iop_SetElem8x8:
+      case Iop_SetElem16x4:
+      case Iop_SetElem32x2:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I64, triop(op, vatom1, atom2, vatom3));
       default:
          ppIROp(op);
          VG_(tool_panic)("memcheck:expr2vbits_Triop");
@@ -2087,8 +2227,33 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
    tl_assert(sameKindedAtoms(atom2,vatom2));
    switch (op) {
 
+      /* 32-bit SIMD */
+
+      case Iop_Add16x2:
+      case Iop_HAdd16Ux2:
+      case Iop_HAdd16Sx2:
+      case Iop_Sub16x2:
+      case Iop_HSub16Ux2:
+      case Iop_HSub16Sx2:
+      case Iop_QAdd16Sx2:
+      case Iop_QSub16Sx2:
+         return binary16Ix2(mce, vatom1, vatom2);
+
+      case Iop_Add8x4:
+      case Iop_HAdd8Ux4:
+      case Iop_HAdd8Sx4:
+      case Iop_Sub8x4:
+      case Iop_HSub8Ux4:
+      case Iop_HSub8Sx4:
+      case Iop_QSub8Ux4:
+      case Iop_QAdd8Ux4:
+      case Iop_QSub8Sx4:
+      case Iop_QAdd8Sx4:
+         return binary8Ix4(mce, vatom1, vatom2);
+
       /* 64-bit SIMD */
 
+      case Iop_ShrN8x8:
       case Iop_ShrN16x4:
       case Iop_ShrN32x2:
       case Iop_SarN8x8:
@@ -2107,20 +2272,29 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
          return vectorNarrow64(mce, op, vatom1, vatom2);
 
       case Iop_Min8Ux8:
+      case Iop_Min8Sx8:
       case Iop_Max8Ux8:
+      case Iop_Max8Sx8:
       case Iop_Avg8Ux8:
       case Iop_QSub8Sx8:
       case Iop_QSub8Ux8:
       case Iop_Sub8x8:
       case Iop_CmpGT8Sx8:
+      case Iop_CmpGT8Ux8:
       case Iop_CmpEQ8x8:
       case Iop_QAdd8Sx8:
       case Iop_QAdd8Ux8:
+      case Iop_QSal8x8:
+      case Iop_QShl8x8:
       case Iop_Add8x8:
+      case Iop_Mul8x8:
+      case Iop_PolynomialMul8x8:
          return binary8Ix8(mce, vatom1, vatom2);
 
       case Iop_Min16Sx4:
+      case Iop_Min16Ux4:
       case Iop_Max16Sx4:
+      case Iop_Max16Ux4:
       case Iop_Avg16Ux4:
       case Iop_QSub16Ux4:
       case Iop_QSub16Sx4:
@@ -2129,18 +2303,135 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_MulHi16Sx4:
       case Iop_MulHi16Ux4:
       case Iop_CmpGT16Sx4:
+      case Iop_CmpGT16Ux4:
       case Iop_CmpEQ16x4:
       case Iop_QAdd16Sx4:
       case Iop_QAdd16Ux4:
+      case Iop_QSal16x4:
+      case Iop_QShl16x4:
       case Iop_Add16x4:
+      case Iop_QDMulHi16Sx4:
+      case Iop_QRDMulHi16Sx4:
          return binary16Ix4(mce, vatom1, vatom2);
 
       case Iop_Sub32x2:
       case Iop_Mul32x2:
+      case Iop_Max32Sx2:
+      case Iop_Max32Ux2:
+      case Iop_Min32Sx2:
+      case Iop_Min32Ux2:
       case Iop_CmpGT32Sx2:
+      case Iop_CmpGT32Ux2:
       case Iop_CmpEQ32x2:
       case Iop_Add32x2:
+      case Iop_QAdd32Ux2:
+      case Iop_QAdd32Sx2:
+      case Iop_QSub32Ux2:
+      case Iop_QSub32Sx2:
+      case Iop_QSal32x2:
+      case Iop_QShl32x2:
+      case Iop_QDMulHi32Sx2:
+      case Iop_QRDMulHi32Sx2:
          return binary32Ix2(mce, vatom1, vatom2);
+
+      case Iop_QSub64Ux1:
+      case Iop_QSub64Sx1:
+      case Iop_QAdd64Ux1:
+      case Iop_QAdd64Sx1:
+      case Iop_QSal64x1:
+      case Iop_QShl64x1:
+      case Iop_Sal64x1:
+         return binary64Ix1(mce, vatom1, vatom2);
+
+      case Iop_QShlN8Sx8:
+      case Iop_QShlN8x8:
+      case Iop_QSalN8x8:
+         complainIfUndefined(mce, atom2);
+         return mkPCast8x8(mce, vatom1);
+
+      case Iop_QShlN16Sx4:
+      case Iop_QShlN16x4:
+      case Iop_QSalN16x4:
+         complainIfUndefined(mce, atom2);
+         return mkPCast16x4(mce, vatom1);
+
+      case Iop_QShlN32Sx2:
+      case Iop_QShlN32x2:
+      case Iop_QSalN32x2:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x2(mce, vatom1);
+
+      case Iop_QShlN64Sx1:
+      case Iop_QShlN64x1:
+      case Iop_QSalN64x1:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x2(mce, vatom1);
+
+      case Iop_PwMax32Sx2:
+      case Iop_PwMax32Ux2:
+      case Iop_PwMin32Sx2:
+      case Iop_PwMin32Ux2:
+      case Iop_PwMax32Fx2:
+      case Iop_PwMin32Fx2:
+         return assignNew('V', mce, Ity_I64, binop(Iop_PwMax32Ux2, mkPCast32x2(mce, vatom1),
+                     mkPCast32x2(mce, vatom2)));
+
+      case Iop_PwMax16Sx4:
+      case Iop_PwMax16Ux4:
+      case Iop_PwMin16Sx4:
+      case Iop_PwMin16Ux4:
+         return assignNew('V', mce, Ity_I64, binop(Iop_PwMax16Ux4, mkPCast16x4(mce, vatom1),
+                     mkPCast16x4(mce, vatom2)));
+
+      case Iop_PwMax8Sx8:
+      case Iop_PwMax8Ux8:
+      case Iop_PwMin8Sx8:
+      case Iop_PwMin8Ux8:
+         return assignNew('V', mce, Ity_I64, binop(Iop_PwMax8Ux8, mkPCast8x8(mce, vatom1),
+                     mkPCast8x8(mce, vatom2)));
+
+      case Iop_PwAdd32x2:
+      case Iop_PwAdd32Fx2:
+         return mkPCast32x2(mce,
+               assignNew('V', mce, Ity_I64, binop(Iop_PwAdd32x2, mkPCast32x2(mce, vatom1),
+                     mkPCast32x2(mce, vatom2))));
+
+      case Iop_PwAdd16x4:
+         return mkPCast16x4(mce,
+               assignNew('V', mce, Ity_I64, binop(op, mkPCast16x4(mce, vatom1),
+                     mkPCast16x4(mce, vatom2))));
+
+      case Iop_PwAdd8x8:
+         return mkPCast8x8(mce,
+               assignNew('V', mce, Ity_I64, binop(op, mkPCast8x8(mce, vatom1),
+                     mkPCast8x8(mce, vatom2))));
+
+      case Iop_Shl8x8:
+      case Iop_Shr8x8:
+      case Iop_Sar8x8:
+      case Iop_Sal8x8:
+         return mkUifU64(mce,
+                   assignNew('V', mce, Ity_I64, binop(op, vatom1, atom2)),
+                   mkPCast8x8(mce,vatom2)
+                );
+
+      case Iop_Shl16x4:
+      case Iop_Shr16x4:
+      case Iop_Sar16x4:
+      case Iop_Sal16x4:
+         return mkUifU64(mce,
+                   assignNew('V', mce, Ity_I64, binop(op, vatom1, atom2)),
+                   mkPCast16x4(mce,vatom2)
+                );
+
+      case Iop_Shl32x2:
+      case Iop_Shr32x2:
+      case Iop_Sar32x2:
+      case Iop_Sal32x2:
+         return mkUifU64(mce,
+                   assignNew('V', mce, Ity_I64, binop(op, vatom1, atom2)),
+                   mkPCast32x2(mce,vatom2)
+                );
 
       /* 64-bit data-steering */
       case Iop_InterleaveLO32x2:
@@ -2149,9 +2440,25 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_InterleaveHI32x2:
       case Iop_InterleaveHI16x4:
       case Iop_InterleaveHI8x8:
+      case Iop_CatOddLanes8x8:
+      case Iop_CatEvenLanes8x8:
       case Iop_CatOddLanes16x4:
       case Iop_CatEvenLanes16x4:
+      case Iop_InterleaveOddLanes8x8:
+      case Iop_InterleaveEvenLanes8x8:
+      case Iop_InterleaveOddLanes16x4:
+      case Iop_InterleaveEvenLanes16x4:
          return assignNew('V', mce, Ity_I64, binop(op, vatom1, vatom2));
+
+      case Iop_GetElem8x8:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I8, binop(op, vatom1, atom2));
+      case Iop_GetElem16x4:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I16, binop(op, vatom1, atom2));
+      case Iop_GetElem32x2:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I32, binop(op, vatom1, atom2));
 
       /* Perm8x8: rearrange values in left arg using steering values
         from right arg.  So rearrange the vbits in the same way but
@@ -2165,16 +2472,18 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
 
       /* V128-bit SIMD */
 
+      case Iop_ShrN8x16:
       case Iop_ShrN16x8:
       case Iop_ShrN32x4:
       case Iop_ShrN64x2:
+      case Iop_SarN8x16:
       case Iop_SarN16x8:
       case Iop_SarN32x4:
+      case Iop_SarN64x2:
+      case Iop_ShlN8x16:
       case Iop_ShlN16x8:
       case Iop_ShlN32x4:
       case Iop_ShlN64x2:
-      case Iop_ShlN8x16:
-      case Iop_SarN8x16:
          /* Same scheme as with all other shifts.  Note: 22 Oct 05:
             this is wrong now, scalar shifts are done properly lazily.
             Vector shifts should be fixed too. */
@@ -2185,6 +2494,7 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Shl8x16:
       case Iop_Shr8x16:
       case Iop_Sar8x16:
+      case Iop_Sal8x16:
       case Iop_Rol8x16:
          return mkUifUV128(mce,
                    assignNew('V', mce, Ity_V128, binop(op, vatom1, atom2)),
@@ -2194,6 +2504,7 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Shl16x8:
       case Iop_Shr16x8:
       case Iop_Sar16x8:
+      case Iop_Sal16x8:
       case Iop_Rol16x8:
          return mkUifUV128(mce,
                    assignNew('V', mce, Ity_V128, binop(op, vatom1, atom2)),
@@ -2203,11 +2514,35 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Shl32x4:
       case Iop_Shr32x4:
       case Iop_Sar32x4:
+      case Iop_Sal32x4:
       case Iop_Rol32x4:
          return mkUifUV128(mce,
                    assignNew('V', mce, Ity_V128, binop(op, vatom1, atom2)),
                    mkPCast32x4(mce,vatom2)
                 );
+
+      case Iop_Shl64x2:
+      case Iop_Shr64x2:
+      case Iop_Sar64x2:
+      case Iop_Sal64x2:
+         return mkUifUV128(mce,
+                   assignNew('V', mce, Ity_V128, binop(op, vatom1, atom2)),
+                   mkPCast64x2(mce,vatom2)
+                );
+
+      case Iop_F32ToFixed32Ux4_RZ:
+      case Iop_F32ToFixed32Sx4_RZ:
+      case Iop_Fixed32UToF32x4_RN:
+      case Iop_Fixed32SToF32x4_RN:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x4(mce, vatom1);
+
+      case Iop_F32ToFixed32Ux2_RZ:
+      case Iop_F32ToFixed32Sx2_RZ:
+      case Iop_Fixed32UToF32x2_RN:
+      case Iop_Fixed32SToF32x2_RN:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x2(mce, vatom1);
 
       case Iop_QSub8Ux16:
       case Iop_QSub8Sx16:
@@ -2223,7 +2558,11 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Avg8Sx16:
       case Iop_QAdd8Ux16:
       case Iop_QAdd8Sx16:
+      case Iop_QSal8x16:
+      case Iop_QShl8x16:
       case Iop_Add8x16:
+      case Iop_Mul8x16:
+      case Iop_PolynomialMul8x16:
          return binary8Ix16(mce, vatom1, vatom2);
 
       case Iop_QSub16Ux8:
@@ -2243,7 +2582,11 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Avg16Sx8:
       case Iop_QAdd16Ux8:
       case Iop_QAdd16Sx8:
+      case Iop_QSal16x8:
+      case Iop_QShl16x8:
       case Iop_Add16x8:
+      case Iop_QDMulHi16Sx8:
+      case Iop_QRDMulHi16Sx8:
          return binary16Ix8(mce, vatom1, vatom2);
 
       case Iop_Sub32x4:
@@ -2254,6 +2597,8 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_QAdd32Ux4:
       case Iop_QSub32Sx4:
       case Iop_QSub32Ux4:
+      case Iop_QSal32x4:
+      case Iop_QShl32x4:
       case Iop_Avg32Ux4:
       case Iop_Avg32Sx4:
       case Iop_Add32x4:
@@ -2261,10 +2606,20 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Max32Sx4:
       case Iop_Min32Ux4:
       case Iop_Min32Sx4:
+      case Iop_Mul32x4:
+      case Iop_QDMulHi32Sx4:
+      case Iop_QRDMulHi32Sx4:
          return binary32Ix4(mce, vatom1, vatom2);
 
       case Iop_Sub64x2:
       case Iop_Add64x2:
+      case Iop_CmpGT64Sx2:
+      case Iop_QSal64x2:
+      case Iop_QShl64x2:
+      case Iop_QAdd64Ux2:
+      case Iop_QAdd64Sx2:
+      case Iop_QSub64Ux2:
+      case Iop_QSub64Sx2:
          return binary64Ix2(mce, vatom1, vatom2);
 
       case Iop_QNarrow32Sx4:
@@ -2309,7 +2664,21 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_CmpGT32Fx4:
       case Iop_CmpGE32Fx4:
       case Iop_Add32Fx4:
+      case Iop_Recps32Fx4:
+      case Iop_Rsqrts32Fx4:
          return binary32Fx4(mce, vatom1, vatom2);      
+
+      case Iop_Sub32Fx2:
+      case Iop_Mul32Fx2:
+      case Iop_Min32Fx2:
+      case Iop_Max32Fx2:
+      case Iop_CmpEQ32Fx2:
+      case Iop_CmpGT32Fx2:
+      case Iop_CmpGE32Fx2:
+      case Iop_Add32Fx2:
+      case Iop_Recps32Fx2:
+      case Iop_Rsqrts32Fx2:
+         return binary32Fx2(mce, vatom1, vatom2);      
 
       case Iop_Sub32F0x4:
       case Iop_Mul32F0x4:
@@ -2323,6 +2692,63 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_Add32F0x4:
          return binary32F0x4(mce, vatom1, vatom2);      
 
+      case Iop_QShlN8Sx16:
+      case Iop_QShlN8x16:
+      case Iop_QSalN8x16:
+         complainIfUndefined(mce, atom2);
+         return mkPCast8x16(mce, vatom1);
+
+      case Iop_QShlN16Sx8:
+      case Iop_QShlN16x8:
+      case Iop_QSalN16x8:
+         complainIfUndefined(mce, atom2);
+         return mkPCast16x8(mce, vatom1);
+
+      case Iop_QShlN32Sx4:
+      case Iop_QShlN32x4:
+      case Iop_QSalN32x4:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x4(mce, vatom1);
+
+      case Iop_QShlN64Sx2:
+      case Iop_QShlN64x2:
+      case Iop_QSalN64x2:
+         complainIfUndefined(mce, atom2);
+         return mkPCast32x4(mce, vatom1);
+
+      case Iop_Mull32Sx2:
+      case Iop_Mull32Ux2:
+      case Iop_QDMulLong32Sx2:
+         return vectorLongenI64(mce, Iop_Longen32Sx2,
+               mkUifU64(mce, vatom1, vatom2));
+
+      case Iop_Mull16Sx4:
+      case Iop_Mull16Ux4:
+      case Iop_QDMulLong16Sx4:
+         return vectorLongenI64(mce, Iop_Longen16Sx4,
+               mkUifU64(mce, vatom1, vatom2));
+
+      case Iop_Mull8Sx8:
+      case Iop_Mull8Ux8:
+      case Iop_PolynomialMull8x8:
+         return vectorLongenI64(mce, Iop_Longen8Sx8,
+               mkUifU64(mce, vatom1, vatom2));
+
+      case Iop_PwAdd32x4:
+         return mkPCast32x4(mce,
+               assignNew('V', mce, Ity_V128, binop(op, mkPCast32x4(mce, vatom1),
+                     mkPCast32x4(mce, vatom2))));
+
+      case Iop_PwAdd16x8:
+         return mkPCast16x8(mce,
+               assignNew('V', mce, Ity_V128, binop(op, mkPCast16x8(mce, vatom1),
+                     mkPCast16x8(mce, vatom2))));
+
+      case Iop_PwAdd8x16:
+         return mkPCast8x16(mce,
+               assignNew('V', mce, Ity_V128, binop(op, mkPCast8x16(mce, vatom1),
+                     mkPCast8x16(mce, vatom2))));
+
       /* V128-bit data-steering */
       case Iop_SetV128lo32:
       case Iop_SetV128lo64:
@@ -2335,8 +2761,33 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_InterleaveHI32x4:
       case Iop_InterleaveHI16x8:
       case Iop_InterleaveHI8x16:
+      case Iop_CatOddLanes8x16:
+      case Iop_CatOddLanes16x8:
+      case Iop_CatOddLanes32x4:
+      case Iop_CatEvenLanes8x16:
+      case Iop_CatEvenLanes16x8:
+      case Iop_CatEvenLanes32x4:
+      case Iop_InterleaveOddLanes8x16:
+      case Iop_InterleaveOddLanes16x8:
+      case Iop_InterleaveOddLanes32x4:
+      case Iop_InterleaveEvenLanes8x16:
+      case Iop_InterleaveEvenLanes16x8:
+      case Iop_InterleaveEvenLanes32x4:
          return assignNew('V', mce, Ity_V128, binop(op, vatom1, vatom2));
- 
+
+      case Iop_GetElem8x16:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I8, binop(op, vatom1, atom2));
+      case Iop_GetElem16x8:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I16, binop(op, vatom1, atom2));
+      case Iop_GetElem32x4:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I32, binop(op, vatom1, atom2));
+      case Iop_GetElem64x2:
+         complainIfUndefined(mce, atom2);
+         return assignNew('V', mce, Ity_I64, binop(op, vatom1, atom2));
+
      /* Perm8x16: rearrange values in left arg using steering values
         from right arg.  So rearrange the vbits in the same way but
         pessimise wrt steering values. */
@@ -2398,8 +2849,8 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
 
       case Iop_RoundF64toInt:
       case Iop_RoundF64toF32:
-      case Iop_F64toI64:
-      case Iop_I64toF64:
+      case Iop_F64toI64S:
+      case Iop_I64StoF64:
       case Iop_SinF64:
       case Iop_CosF64:
       case Iop_TanF64:
@@ -2408,12 +2859,18 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
          /* I32(rm) x I64/F64 -> I64/F64 */
          return mkLazy2(mce, Ity_I64, vatom1, vatom2);
 
-      case Iop_F64toI32:
+      case Iop_RoundF32toInt:
+      case Iop_SqrtF32:
+         /* I32(rm) x I32/F32 -> I32/F32 */
+         return mkLazy2(mce, Ity_I32, vatom1, vatom2);
+
+      case Iop_F64toI32U:
+      case Iop_F64toI32S:
       case Iop_F64toF32:
          /* First arg is I32 (rounding mode), second is F64 (data). */
          return mkLazy2(mce, Ity_I32, vatom1, vatom2);
 
-      case Iop_F64toI16:
+      case Iop_F64toI16S:
          /* First arg is I32 (rounding mode), second is F64 (data). */
          return mkLazy2(mce, Ity_I16, vatom1, vatom2);
 
@@ -2463,6 +2920,7 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
          return assignNew('V', mce, Ity_I16, binop(Iop_8HLto16, vHi8, vLo8));
       }
 
+      case Iop_Sad8Ux4: /* maybe we could do better?  ftm, do mkLazy2. */
       case Iop_DivS32:
       case Iop_DivU32:
          return mkLazy2(mce, Ity_I32, vatom1, vatom2);
@@ -2651,7 +3109,20 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_RoundF32x4_RP:
       case Iop_RoundF32x4_RN:
       case Iop_RoundF32x4_RZ:
+      case Iop_Recip32x4:
+      case Iop_Abs32Fx4:
+      case Iop_Neg32Fx4:
+      case Iop_Rsqrte32Fx4:
          return unary32Fx4(mce, vatom);
+
+      case Iop_I32UtoFx2:
+      case Iop_I32StoFx2:
+      case Iop_Recip32Fx2:
+      case Iop_Recip32x2:
+      case Iop_Abs32Fx2:
+      case Iop_Neg32Fx2:
+      case Iop_Rsqrte32Fx2:
+         return unary32Fx2(mce, vatom);
 
       case Iop_Sqrt32F0x4:
       case Iop_RSqrt32F0x4:
@@ -2663,10 +3134,17 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Dup8x16:
       case Iop_Dup16x8:
       case Iop_Dup32x4:
+      case Iop_Reverse16_8x16:
+      case Iop_Reverse32_8x16:
+      case Iop_Reverse32_16x8:
+      case Iop_Reverse64_8x16:
+      case Iop_Reverse64_16x8:
+      case Iop_Reverse64_32x4:
          return assignNew('V', mce, Ity_V128, unop(op, vatom));
 
       case Iop_F32toF64: 
-      case Iop_I32toF64:
+      case Iop_I32StoF64:
+      case Iop_I32UtoF64:
       case Iop_NegF64:
       case Iop_AbsF64:
       case Iop_Est5FRSqrt:
@@ -2681,6 +3159,8 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Clz32:
       case Iop_Ctz32:
       case Iop_TruncF64asF32:
+      case Iop_NegF32:
+      case Iop_AbsF32:
          return mkPCastTo(mce, Ity_I32, vatom);
 
       case Iop_1Uto64:
@@ -2694,6 +3174,15 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_V128HIto64:
       case Iop_128HIto64:
       case Iop_128to64:
+      case Iop_Dup8x8:
+      case Iop_Dup16x4:
+      case Iop_Dup32x2:
+      case Iop_Reverse16_8x8:
+      case Iop_Reverse32_8x8:
+      case Iop_Reverse32_16x4:
+      case Iop_Reverse64_8x8:
+      case Iop_Reverse64_16x4:
+      case Iop_Reverse64_32x2:
          return assignNew('V', mce, Ity_I64, unop(op, vatom));
 
       case Iop_64to32:
@@ -2730,6 +3219,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_ReinterpF64asI64:
       case Iop_ReinterpI64asF64:
       case Iop_ReinterpI32asF32:
+      case Iop_ReinterpF32asI32:
       case Iop_NotV128:
       case Iop_Not64:
       case Iop_Not32:
@@ -2737,6 +3227,106 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Not8:
       case Iop_Not1:
          return vatom;
+
+      case Iop_CmpNEZ8x8:
+      case Iop_Cnt8x8:
+      case Iop_Clz8Sx8:
+      case Iop_Cls8Sx8:
+      case Iop_Abs8x8:
+         return mkPCast8x8(mce, vatom);
+
+      case Iop_CmpNEZ8x16:
+      case Iop_Cnt8x16:
+      case Iop_Clz8Sx16:
+      case Iop_Cls8Sx16:
+      case Iop_Abs8x16:
+         return mkPCast8x16(mce, vatom);
+
+      case Iop_CmpNEZ16x4:
+      case Iop_Clz16Sx4:
+      case Iop_Cls16Sx4:
+      case Iop_Abs16x4:
+         return mkPCast16x4(mce, vatom);
+
+      case Iop_CmpNEZ16x8:
+      case Iop_Clz16Sx8:
+      case Iop_Cls16Sx8:
+      case Iop_Abs16x8:
+         return mkPCast16x8(mce, vatom);
+
+      case Iop_CmpNEZ32x2:
+      case Iop_Clz32Sx2:
+      case Iop_Cls32Sx2:
+      case Iop_FtoI32Ux2_RZ:
+      case Iop_FtoI32Sx2_RZ:
+      case Iop_Abs32x2:
+         return mkPCast32x2(mce, vatom);
+
+      case Iop_CmpNEZ32x4:
+      case Iop_Clz32Sx4:
+      case Iop_Cls32Sx4:
+      case Iop_FtoI32Ux4_RZ:
+      case Iop_FtoI32Sx4_RZ:
+      case Iop_Abs32x4:
+         return mkPCast32x4(mce, vatom);
+
+      case Iop_CmpwNEZ64:
+         return mkPCastTo(mce, Ity_I64, vatom);
+
+      case Iop_CmpNEZ64x2:
+         return mkPCast64x2(mce, vatom);
+
+      case Iop_Shorten16x8:
+      case Iop_Shorten32x4:
+      case Iop_Shorten64x2:
+      case Iop_QShortenS16Sx8:
+      case Iop_QShortenU16Sx8:
+      case Iop_QShortenU16Ux8:
+      case Iop_QShortenS32Sx4:
+      case Iop_QShortenU32Sx4:
+      case Iop_QShortenU32Ux4:
+      case Iop_QShortenS64Sx2:
+      case Iop_QShortenU64Sx2:
+      case Iop_QShortenU64Ux2:
+         return vectorShortenV128(mce, op, vatom);
+
+      case Iop_Longen8Sx8:
+      case Iop_Longen8Ux8:
+      case Iop_Longen16Sx4:
+      case Iop_Longen16Ux4:
+      case Iop_Longen32Sx2:
+      case Iop_Longen32Ux2:
+         return vectorLongenI64(mce, op, vatom);
+
+      case Iop_PwAddL32Ux2:
+      case Iop_PwAddL32Sx2:
+         return mkPCastTo(mce, Ity_I64,
+               assignNew('V', mce, Ity_I64, unop(op, mkPCast32x2(mce, vatom))));
+
+      case Iop_PwAddL16Ux4:
+      case Iop_PwAddL16Sx4:
+         return mkPCast32x2(mce,
+               assignNew('V', mce, Ity_I64, unop(op, mkPCast16x4(mce, vatom))));
+
+      case Iop_PwAddL8Ux8:
+      case Iop_PwAddL8Sx8:
+         return mkPCast16x4(mce,
+               assignNew('V', mce, Ity_I64, unop(op, mkPCast8x8(mce, vatom))));
+
+      case Iop_PwAddL32Ux4:
+      case Iop_PwAddL32Sx4:
+         return mkPCast64x2(mce,
+               assignNew('V', mce, Ity_V128, unop(op, mkPCast32x4(mce, vatom))));
+
+      case Iop_PwAddL16Ux8:
+      case Iop_PwAddL16Sx8:
+         return mkPCast32x4(mce,
+               assignNew('V', mce, Ity_V128, unop(op, mkPCast16x8(mce, vatom))));
+
+      case Iop_PwAddL8Ux16:
+      case Iop_PwAddL8Sx16:
+         return mkPCast16x8(mce,
+               assignNew('V', mce, Ity_V128, unop(op, mkPCast8x16(mce, vatom))));
 
       default:
          ppIROp(op);
@@ -3862,6 +4452,68 @@ static void do_shadow_CAS_double ( MCEnv* mce, IRCAS* cas )
 }
 
 
+/* ------ Dealing with LL/SC (not difficult) ------ */
+
+static void do_shadow_LLSC ( MCEnv*    mce,
+                             IREndness stEnd,
+                             IRTemp    stResult,
+                             IRExpr*   stAddr,
+                             IRExpr*   stStoredata )
+{
+   /* In short: treat a load-linked like a normal load followed by an
+      assignment of the loaded (shadow) data to the result temporary.
+      Treat a store-conditional like a normal store, and mark the
+      result temporary as defined. */
+   IRType resTy  = typeOfIRTemp(mce->sb->tyenv, stResult);
+   IRTemp resTmp = findShadowTmpV(mce, stResult);
+
+   tl_assert(isIRAtom(stAddr));
+   if (stStoredata)
+      tl_assert(isIRAtom(stStoredata));
+
+   if (stStoredata == NULL) {
+      /* Load Linked */
+      /* Just treat this as a normal load, followed by an assignment of
+         the value to .result. */
+      /* Stay sane */
+      tl_assert(resTy == Ity_I64 || resTy == Ity_I32
+                || resTy == Ity_I16 || resTy == Ity_I8);
+      assign( 'V', mce, resTmp,
+                   expr2vbits_Load(
+                      mce, stEnd, resTy, stAddr, 0/*addr bias*/));
+   } else {
+      /* Store Conditional */
+      /* Stay sane */
+      IRType dataTy = typeOfIRExpr(mce->sb->tyenv,
+                                   stStoredata);
+      tl_assert(dataTy == Ity_I64 || dataTy == Ity_I32
+                || dataTy == Ity_I16 || dataTy == Ity_I8);
+      do_shadow_Store( mce, stEnd,
+                            stAddr, 0/* addr bias */,
+                            stStoredata,
+                            NULL /* shadow data */,
+                            NULL/*guard*/ );
+      /* This is a store conditional, so it writes to .result a value
+         indicating whether or not the store succeeded.  Just claim
+         this value is always defined.  In the PowerPC interpretation
+         of store-conditional, definedness of the success indication
+         depends on whether the address of the store matches the
+         reservation address.  But we can't tell that here (and
+         anyway, we're not being PowerPC-specific).  At least we are
+         guaranteed that the definedness of the store address, and its
+         addressibility, will be checked as per normal.  So it seems
+         pretty safe to just say that the success indication is always
+         defined.
+
+         In schemeS, for origin tracking, we must correspondingly set
+         a no-origin value for the origin shadow of .result.
+      */
+      tl_assert(resTy == Ity_I1);
+      assign( 'V', mce, resTmp, definedOfType(resTy) );
+   }
+}
+
+
 /*------------------------------------------------------------*/
 /*--- Memcheck main                                        ---*/
 /*------------------------------------------------------------*/
@@ -3979,6 +4631,11 @@ static Bool checkForBogusLiterals ( /*FLAT*/ IRStmt* st )
                 || isBogusAtom(cas->expdLo)
                 || (cas->dataHi ? isBogusAtom(cas->dataHi) : False)
                 || isBogusAtom(cas->dataLo);
+      case Ist_LLSC:
+         return isBogusAtom(st->Ist.LLSC.addr)
+                || (st->Ist.LLSC.storedata
+                       ? isBogusAtom(st->Ist.LLSC.storedata)
+                       : False);
       default: 
       unhandled:
          ppIRStmt(st);
@@ -4182,32 +4839,6 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
                                    st->Ist.Store.data,
                                    NULL /* shadow data */,
                                    NULL/*guard*/ );
-            /* If this is a store conditional, it writes to .resSC a
-               value indicating whether or not the store succeeded.
-               Just claim this value is always defined.  In the
-               PowerPC interpretation of store-conditional,
-               definedness of the success indication depends on
-               whether the address of the store matches the
-               reservation address.  But we can't tell that here (and
-               anyway, we're not being PowerPC-specific).  At least we
-               are guarantted that the definedness of the store
-               address, and its addressibility, will be checked as per
-               normal.  So it seems pretty safe to just say that the
-               success indication is always defined.
-
-               In schemeS, for origin tracking, we must
-               correspondingly set a no-origin value for the origin
-               shadow of resSC.
-            */
-            if (st->Ist.Store.resSC != IRTemp_INVALID) {
-               assign( 'V', &mce,
-                       findShadowTmpV(&mce, st->Ist.Store.resSC),
-                       definedOfType(
-                          shadowTypeV(
-                             typeOfIRTemp(mce.sb->tyenv,
-                                          st->Ist.Store.resSC)
-                     )));
-            }
             break;
 
          case Ist_Exit:
@@ -4239,6 +4870,14 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
                skip the origin-tracking stuff (call to schemeS) above,
                since that's all tangled up with it too; do_shadow_CAS
                does it all. */
+            break;
+
+         case Ist_LLSC:
+            do_shadow_LLSC( &mce,
+                            st->Ist.LLSC.end,
+                            st->Ist.LLSC.result,
+                            st->Ist.LLSC.addr,
+                            st->Ist.LLSC.storedata );
             break;
 
          default:
@@ -4597,6 +5236,7 @@ static IRAtom* zWidenFrom32 ( MCEnv* mce, IRType dstTy, IRAtom* e ) {
    tl_assert(0);
 }
 
+
 static IRAtom* schemeE ( MCEnv* mce, IRExpr* e )
 {
    tl_assert(MC_(clo_mc_level) == 3);
@@ -4731,6 +5371,7 @@ static IRAtom* schemeE ( MCEnv* mce, IRExpr* e )
          VG_(tool_panic)("memcheck:schemeE");
    }
 }
+
 
 static void do_origins_Dirty ( MCEnv* mce, IRDirty* d )
 {
@@ -4888,6 +5529,26 @@ static void do_origins_Dirty ( MCEnv* mce, IRDirty* d )
    }
 }
 
+
+static void do_origins_Store ( MCEnv* mce,
+                               IREndness stEnd,
+                               IRExpr* stAddr,
+                               IRExpr* stData )
+{
+   Int     dszB;
+   IRAtom* dataB;
+   /* assert that the B value for the address is already available
+      (somewhere), since the call to schemeE will want to see it.
+      XXXX how does this actually ensure that?? */
+   tl_assert(isIRAtom(stAddr));
+   tl_assert(isIRAtom(stData));
+   dszB  = sizeofIRType( typeOfIRExpr(mce->sb->tyenv, stData ) );
+   dataB = schemeE( mce, stData );
+   gen_store_b( mce, dszB, stAddr, 0/*offset*/, dataB,
+                     NULL/*guard*/ );
+}
+
+
 static void schemeS ( MCEnv* mce, IRStmt* st )
 {
    tl_assert(MC_(clo_mc_level) == 3);
@@ -4928,30 +5589,47 @@ static void schemeS ( MCEnv* mce, IRStmt* st )
                                       st->Ist.PutI.bias, t4 ));
          break;
       }
+
       case Ist_Dirty:
          do_origins_Dirty( mce, st->Ist.Dirty.details );
          break;
-      case Ist_Store: {
-         Int     dszB;
-         IRAtom* dataB;
-         /* assert that the B value for the address is already
-            available (somewhere) */
-         tl_assert(isIRAtom(st->Ist.Store.addr));
-         dszB = sizeofIRType(
-                   typeOfIRExpr(mce->sb->tyenv, st->Ist.Store.data ));
-         dataB = schemeE( mce, st->Ist.Store.data );
-         gen_store_b( mce, dszB, st->Ist.Store.addr, 0/*offset*/, dataB,
-                      NULL/*guard*/ );
-         /* For the rationale behind this, see comments at the place
-            where the V-shadow for .resSC is constructed, in the main
-            loop in MC_(instrument).  In short, wee regard .resSc as
-            always-defined. */
-         if (st->Ist.Store.resSC != IRTemp_INVALID) {
-            assign( 'B', mce, findShadowTmpB(mce, st->Ist.Store.resSC),
-                    mkU32(0) );
+
+      case Ist_Store:
+         do_origins_Store( mce, st->Ist.Store.end,
+                                st->Ist.Store.addr,
+                                st->Ist.Store.data );
+         break;
+
+      case Ist_LLSC: {
+         /* In short: treat a load-linked like a normal load followed
+            by an assignment of the loaded (shadow) data the result
+            temporary.  Treat a store-conditional like a normal store,
+            and mark the result temporary as defined. */
+         if (st->Ist.LLSC.storedata == NULL) {
+            /* Load Linked */
+            IRType resTy 
+               = typeOfIRTemp(mce->sb->tyenv, st->Ist.LLSC.result);
+            IRExpr* vanillaLoad
+               = IRExpr_Load(st->Ist.LLSC.end, resTy, st->Ist.LLSC.addr);
+            tl_assert(resTy == Ity_I64 || resTy == Ity_I32
+                      || resTy == Ity_I16 || resTy == Ity_I8);
+            assign( 'B', mce, findShadowTmpB(mce, st->Ist.LLSC.result),
+                              schemeE(mce, vanillaLoad));
+         } else {
+            /* Store conditional */
+            do_origins_Store( mce, st->Ist.LLSC.end,
+                                   st->Ist.LLSC.addr,
+                                   st->Ist.LLSC.storedata );
+            /* For the rationale behind this, see comments at the
+               place where the V-shadow for .result is constructed, in
+               do_shadow_LLSC.  In short, we regard .result as
+               always-defined. */
+            assign( 'B', mce, findShadowTmpB(mce, st->Ist.LLSC.result),
+                              mkU32(0) );
          }
          break;
       }
+
       case Ist_Put: {
          Int b_offset
             = MC_(get_otrack_shadow_offset)(
@@ -4965,15 +5643,18 @@ static void schemeS ( MCEnv* mce, IRStmt* st )
          }
          break;
       }
+
       case Ist_WrTmp:
          assign( 'B', mce, findShadowTmpB(mce, st->Ist.WrTmp.tmp),
                            schemeE(mce, st->Ist.WrTmp.data) );
          break;
+
       case Ist_MBE:
       case Ist_NoOp:
       case Ist_Exit:
       case Ist_IMark:
          break;
+
       default:
          VG_(printf)("mc_translate.c: schemeS: unhandled: ");
          ppIRStmt(st); 

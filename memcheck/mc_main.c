@@ -9,7 +9,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -1636,6 +1636,22 @@ static void make_mem_defined_if_addressable ( Addr a, SizeT len )
    }
 }
 
+/* Similarly (needed for mprotect handling ..) */
+static void make_mem_defined_if_noaccess ( Addr a, SizeT len )
+{
+   SizeT i;
+   UChar vabits2;
+   DEBUG("make_mem_defined_if_noaccess(%p, %llu)\n", a, (ULong)len);
+   for (i = 0; i < len; i++) {
+      vabits2 = get_vabits2( a+i );
+      if (LIKELY(VA_BITS2_NOACCESS == vabits2)) {
+         set_vabits2(a+i, VA_BITS2_DEFINED);
+         if (UNLIKELY(MC_(clo_mc_level) >= 3)) {
+            MC_(helperc_b_store1)( a+i, 0 ); /* clear the origin tag */
+         } 
+      }
+   }
+}
 
 /* --- Block-copy permissions (needed for implementing realloc() and
        sys_mremap). --- */
@@ -3701,15 +3717,85 @@ void check_mem_is_defined_asciiz ( CorePart part, ThreadId tid,
    }
 }
 
+/* Handling of mmap and mprotect is not as simple as it seems.
+
+   The underlying semantics are that memory obtained from mmap is
+   always initialised, but may be inaccessible.  And changes to the
+   protection of memory do not change its contents and hence not its
+   definedness state.  Problem is we can't model
+   inaccessible-but-with-some-definedness state; once we mark memory
+   as inaccessible we lose all info about definedness, and so can't
+   restore that if it is later made accessible again.
+
+   One obvious thing to do is this:
+
+      mmap/mprotect NONE  -> noaccess
+      mmap/mprotect other -> defined
+
+   The problem case here is: taking accessible memory, writing
+   uninitialised data to it, mprotecting it NONE and later mprotecting
+   it back to some accessible state causes the undefinedness to be
+   lost.
+
+   A better proposal is:
+
+     (1) mmap NONE       ->  make noaccess
+     (2) mmap other      ->  make defined
+
+     (3) mprotect NONE   ->  # no change
+     (4) mprotect other  ->  change any "noaccess" to "defined"
+
+   (2) is OK because memory newly obtained from mmap really is defined
+       (zeroed out by the kernel -- doing anything else would
+       constitute a massive security hole.)
+
+   (1) is OK because the only way to make the memory usable is via
+       (4), in which case we also wind up correctly marking it all as
+       defined.
+
+   (3) is the weak case.  We choose not to change memory state.
+       (presumably the range is in some mixture of "defined" and
+       "undefined", viz, accessible but with arbitrary V bits).  Doing
+       nothing means we retain the V bits, so that if the memory is
+       later mprotected "other", the V bits remain unchanged, so there
+       can be no false negatives.  The bad effect is that if there's
+       an access in the area, then MC cannot warn; but at least we'll
+       get a SEGV to show, so it's better than nothing.
+
+   Consider the sequence (3) followed by (4).  Any memory that was
+   "defined" or "undefined" previously retains its state (as
+   required).  Any memory that was "noaccess" before can only have
+   been made that way by (1), and so it's OK to change it to
+   "defined".
+
+   See https://bugs.kde.org/show_bug.cgi?id=205541
+   and https://bugs.kde.org/show_bug.cgi?id=210268
+*/
 static
 void mc_new_mem_mmap ( Addr a, SizeT len, Bool rr, Bool ww, Bool xx,
                        ULong di_handle )
 {
-   if (rr || ww || xx)
+   if (rr || ww || xx) {
+      /* (2) mmap/mprotect other -> defined */
       MC_(make_mem_defined)(a, len);
-   else
+   } else {
+      /* (1) mmap/mprotect NONE  -> noaccess */
       MC_(make_mem_noaccess)(a, len);
+   }
 }
+
+static
+void mc_new_mem_mprotect ( Addr a, SizeT len, Bool rr, Bool ww, Bool xx )
+{
+   if (rr || ww || xx) {
+      /* (4) mprotect other  ->  change any "noaccess" to "defined" */
+      make_mem_defined_if_noaccess(a, len);
+   } else {
+      /* (3) mprotect NONE   ->  # no change */
+      /* do nothing */
+   }
+}
+
 
 static
 void mc_new_mem_startup( Addr a, SizeT len,
@@ -4654,10 +4740,11 @@ static Bool mc_expensive_sanity_check ( void )
 /*------------------------------------------------------------*/
 
 Bool          MC_(clo_partial_loads_ok)       = False;
-Long          MC_(clo_freelist_vol)           = 10*1000*1000LL;
+Long          MC_(clo_freelist_vol)           = 20*1000*1000LL;
 LeakCheckMode MC_(clo_leak_check)             = LC_Summary;
 VgRes         MC_(clo_leak_resolution)        = Vg_HighRes;
 Bool          MC_(clo_show_reachable)         = False;
+Bool          MC_(clo_show_possibly_lost)     = True;
 Bool          MC_(clo_workaround_gcc296_bugs) = False;
 Int           MC_(clo_malloc_fill)            = -1;
 Int           MC_(clo_free_fill)              = -1;
@@ -4666,8 +4753,6 @@ Int           MC_(clo_mc_level)               = 2;
 static Bool mc_process_cmd_line_options(Char* arg)
 {
    Char* tmp_str;
-   Char* bad_level_msg =
-      "ERROR: --track-origins=yes has no effect when --undef-value-errors=no";
 
    tl_assert( MC_(clo_mc_level) >= 1 && MC_(clo_mc_level) <= 3 );
 
@@ -4682,8 +4767,7 @@ static Bool mc_process_cmd_line_options(Char* arg)
    */
    if (0 == VG_(strcmp)(arg, "--undef-value-errors=no")) {
       if (MC_(clo_mc_level) == 3) {
-         VG_(message)(Vg_DebugMsg, "%s\n", bad_level_msg);
-         return False;
+         goto bad_level;
       } else {
          MC_(clo_mc_level) = 1;
          return True;
@@ -4701,8 +4785,7 @@ static Bool mc_process_cmd_line_options(Char* arg)
    }
    if (0 == VG_(strcmp)(arg, "--track-origins=yes")) {
       if (MC_(clo_mc_level) == 1) {
-         VG_(message)(Vg_DebugMsg, "%s\n", bad_level_msg);
-         return False;
+         goto bad_level;
       } else {
          MC_(clo_mc_level) = 3;
          return True;
@@ -4711,6 +4794,8 @@ static Bool mc_process_cmd_line_options(Char* arg)
 
 	if VG_BOOL_CLO(arg, "--partial-loads-ok", MC_(clo_partial_loads_ok)) {}
    else if VG_BOOL_CLO(arg, "--show-reachable",   MC_(clo_show_reachable))   {}
+   else if VG_BOOL_CLO(arg, "--show-possibly-lost",
+                                            MC_(clo_show_possibly_lost))     {}
    else if VG_BOOL_CLO(arg, "--workaround-gcc296-bugs",
                                             MC_(clo_workaround_gcc296_bugs)) {}
 
@@ -4768,6 +4853,11 @@ static Bool mc_process_cmd_line_options(Char* arg)
       return VG_(replacement_malloc_process_cmd_line_option)(arg);
 
    return True;
+
+
+  bad_level:
+   VG_(fmsg_bad_option)(arg,
+      "--track-origins=yes has no effect when --undef-value-errors=no.\n");
 }
 
 static void mc_print_usage(void)
@@ -4776,10 +4866,12 @@ static void mc_print_usage(void)
 "    --leak-check=no|summary|full     search for memory leaks at exit?  [summary]\n"
 "    --leak-resolution=low|med|high   differentiation of leak stack traces [high]\n"
 "    --show-reachable=no|yes          show reachable blocks in leak check? [no]\n"
+"    --show-possibly-lost=no|yes      show possibly lost blocks in leak check?\n"
+"                                     [yes]\n"
 "    --undef-value-errors=no|yes      check for undefined value errors [yes]\n"
 "    --track-origins=no|yes           show origins of undefined values? [no]\n"
 "    --partial-loads-ok=no|yes        too hard to explain here; see manual [no]\n"
-"    --freelist-vol=<number>          volume of freed blocks queue [10000000]\n"
+"    --freelist-vol=<number>          volume of freed blocks queue [20000000]\n"
 "    --workaround-gcc296-bugs=no|yes  self explanatory [no]\n"
 "    --ignore-ranges=0xPP-0xQQ[,0xRR-0xSS]   assume given addresses are OK\n"
 "    --malloc-fill=<hexnumber>        fill malloc'd areas with given value\n"
@@ -5694,7 +5786,7 @@ static void mc_pre_clo_init(void)
    VG_(details_version)         (NULL);
    VG_(details_description)     ("a memory error detector");
    VG_(details_copyright_author)(
-      "Copyright (C) 2002-2009, and GNU GPL'd, by Julian Seward et al.");
+      "Copyright (C) 2002-2010, and GNU GPL'd, by Julian Seward et al.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 556 );
 
@@ -5780,7 +5872,7 @@ static void mc_pre_clo_init(void)
    //
    // So we should arguably observe all this.  However:
    // - The current inaccuracy has caused maybe one complaint in seven years(?)
-   // - Telying on the zeroed-ness of whole brk'd pages is pretty grotty... I
+   // - Relying on the zeroed-ness of whole brk'd pages is pretty grotty... I
    //   doubt most programmers know the above information.
    // So I'm not terribly unhappy with marking it as undefined. --njn.
    //
@@ -5790,21 +5882,15 @@ static void mc_pre_clo_init(void)
    // just mark all memory it allocates as defined.]
    //
    VG_(track_new_mem_brk)         ( make_mem_undefined_w_tid );
+
+   // Handling of mmap and mprotect isn't simple (well, it is simple,
+   // but the justification isn't.)  See comments above, just prior to
+   // mc_new_mem_mmap.
    VG_(track_new_mem_mmap)        ( mc_new_mem_mmap );
+   VG_(track_change_mem_mprotect) ( mc_new_mem_mprotect );
    
    VG_(track_copy_mem_remap)      ( MC_(copy_address_range_state) );
 
-   // Nb: we don't do anything with mprotect.  This means that V bits are
-   // preserved if a program, for example, marks some memory as inaccessible
-   // and then later marks it as accessible again.
-   // 
-   // If an access violation occurs (eg. writing to read-only memory) we let
-   // it fault and print an informative termination message.  This doesn't
-   // happen if the program catches the signal, though, which is bad.  If we
-   // had two A bits (for readability and writability) that were completely
-   // distinct from V bits, then we could handle all this properly.
-   VG_(track_change_mem_mprotect) ( NULL );
-      
    VG_(track_die_mem_stack_signal)( MC_(make_mem_noaccess) ); 
    VG_(track_die_mem_brk)         ( MC_(make_mem_noaccess) );
    VG_(track_die_mem_munmap)      ( MC_(make_mem_noaccess) ); 

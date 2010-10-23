@@ -8,7 +8,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward
+   Copyright (C) 2000-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -132,6 +132,7 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
    Int    v_launcher_len  = VG_(strlen)( v_launcher );
    Bool   ld_preload_done = False;
    Int    vglib_len       = VG_(strlen)(VG_(libdir));
+   Bool   debug           = False;
 
    HChar** cpp;
    HChar** ret;
@@ -172,9 +173,12 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
    VG_(debugLog)(2, "initimg", "  \"%s\"\n", preload_string);
 
    /* Count the original size of the env */
+   if (debug) VG_(printf)("\n\n");
    envc = 0;
-   for (cpp = origenv; cpp && *cpp; cpp++)
+   for (cpp = origenv; cpp && *cpp; cpp++) {
       envc++;
+      if (debug) VG_(printf)("XXXXXXXXX: BEFORE %s\n", *cpp);
+   }
 
    /* Allocate a new space */
    ret = VG_(malloc) ("initimg-linux.sce.3",
@@ -182,8 +186,10 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
    vg_assert(ret);
 
    /* copy it over */
-   for (cpp = ret; *origenv; )
+   for (cpp = ret; *origenv; ) {
+      if (debug) VG_(printf)("XXXXXXXXX: COPY   %s\n", *origenv);
       *cpp++ = *origenv++;
+   }
    *cpp = NULL;
    
    vg_assert(envc == (cpp - ret));
@@ -202,6 +208,7 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
 
          ld_preload_done = True;
       }
+      if (debug) VG_(printf)("XXXXXXXXX: MASH   %s\n", *cpp);
    }
 
    /* Add the missing bits */
@@ -213,6 +220,7 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
       VG_(snprintf)(cp, len, "%s%s", ld_preload, preload_string);
 
       ret[envc++] = cp;
+      if (debug) VG_(printf)("XXXXXXXXX: ADD    %s\n", cp);
    }
 
    /* ret[0 .. envc-1] is live now. */
@@ -229,6 +237,10 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
 
    VG_(free)(preload_string);
    ret[envc] = NULL;
+
+   for (i = 0; i < envc; i++) {
+      if (debug) VG_(printf)("XXXXXXXXX: FINAL  %s\n", ret[i]);
+   }
 
    return ret;
 }
@@ -250,9 +262,17 @@ static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
 #define AT_UCACHEBSIZE		21
 #endif /* AT_UCACHEBSIZE */
 
+#ifndef AT_BASE_PLATFORM
+#define AT_BASE_PLATFORM	24
+#endif /* AT_BASE_PLATFORM */
+
 #ifndef AT_RANDOM
 #define AT_RANDOM		25
 #endif /* AT_RANDOM */
+
+#ifndef AT_EXECFN
+#define AT_EXECFN		31
+#endif /* AT_EXECFN */
 
 #ifndef AT_SYSINFO
 #define AT_SYSINFO		32
@@ -430,10 +450,13 @@ Addr setup_client_stack( void*  init_sp,
    /* now, how big is the auxv? */
    auxsize = sizeof(*auxv);	/* there's always at least one entry: AT_NULL */
    for (cauxv = orig_auxv; cauxv->a_type != AT_NULL; cauxv++) {
-      if (cauxv->a_type == AT_PLATFORM)
+      if (cauxv->a_type == AT_PLATFORM ||
+          cauxv->a_type == AT_BASE_PLATFORM)
 	 stringsize += VG_(strlen)(cauxv->u.a_ptr) + 1;
       else if (cauxv->a_type == AT_RANDOM)
 	 stringsize += 16;
+      else if (cauxv->a_type == AT_EXECFN)
+	 stringsize += VG_(strlen)(VG_(args_the_exename)) + 1;
       auxsize += sizeof(*cauxv);
    }
 
@@ -597,6 +620,7 @@ Addr setup_client_stack( void*  init_sp,
 #  endif
 
    for (; orig_auxv->a_type != AT_NULL; auxv++, orig_auxv++) {
+      const NSegment *ehdrseg;
 
       /* copy the entry... */
       *auxv = *orig_auxv;
@@ -638,6 +662,7 @@ Addr setup_client_stack( void*  init_sp,
             break;
 
          case AT_PLATFORM:
+         case AT_BASE_PLATFORM:
             /* points to a platform description string */
             auxv->u.a_ptr = copy_str(&strtab, orig_auxv->u.a_ptr);
             break;
@@ -647,6 +672,14 @@ Addr setup_client_stack( void*  init_sp,
             break;
 
          case AT_HWCAP:
+#           if defined(VGP_arm_linux)
+            { Bool has_neon = (auxv->u.a_val & VKI_HWCAP_NEON) > 0;
+              VG_(debugLog)(2, "initimg",
+                               "ARM has-neon from-auxv: %s\n",
+                               has_neon ? "YES" : "NO");
+              VG_(machine_arm_set_has_NEON)( has_neon );
+            }
+#           endif
             break;
 
          case AT_DCACHEBSIZE:
@@ -687,12 +720,19 @@ Addr setup_client_stack( void*  init_sp,
             break;
 
          case AT_SYSINFO:
-#        if !defined(VGP_ppc32_linux) && !defined(VGP_ppc64_linux)
-         case AT_SYSINFO_EHDR:
-#        endif
             /* Trash this, because we don't reproduce it */
             auxv->a_type = AT_IGNORE;
             break;
+
+#        if !defined(VGP_ppc32_linux) && !defined(VGP_ppc64_linux)
+         case AT_SYSINFO_EHDR:
+            /* Trash this, because we don't reproduce it */
+            ehdrseg = VG_(am_find_nsegment)((Addr)auxv->u.a_ptr);
+            vg_assert(ehdrseg);
+            VG_(am_munmap_valgrind)(ehdrseg->start, ehdrseg->end - ehdrseg->start);
+            auxv->a_type = AT_IGNORE;
+            break;
+#        endif
 
          case AT_RANDOM:
             /* points to 16 random bytes - we need to ensure this is
@@ -701,6 +741,11 @@ Addr setup_client_stack( void*  init_sp,
             auxv->u.a_ptr = strtab;
             VG_(memcpy)(strtab, orig_auxv->u.a_ptr, 16);
             strtab += 16;
+            break;
+
+         case AT_EXECFN:
+            /* points to the executable filename */
+            auxv->u.a_ptr = copy_str(&strtab, VG_(args_the_exename));
             break;
 
          default:
@@ -978,6 +1023,22 @@ void VG_(ii_finalise_image)( IIFinaliseImageInfo iifii )
    arch->vex.guest_GPR1 = iifii.initial_client_SP;
    arch->vex.guest_GPR2 = iifii.initial_client_TOC;
    arch->vex.guest_CIA  = iifii.initial_client_IP;
+
+#   elif defined(VGP_arm_linux)
+   /* Zero out the initial state, and set up the simulated FPU in a
+      sane way. */
+   LibVEX_GuestARM_initialise(&arch->vex);
+
+   /* Zero out the shadow areas. */
+   VG_(memset)(&arch->vex_shadow1, 0, sizeof(VexGuestARMState));
+   VG_(memset)(&arch->vex_shadow2, 0, sizeof(VexGuestARMState));
+
+   arch->vex.guest_R13  = iifii.initial_client_SP;
+   arch->vex.guest_R15T = iifii.initial_client_IP;
+
+   /* This is just EABI stuff. */
+   // FIXME jrs: what's this for?
+   arch->vex.guest_R1 =  iifii.initial_client_SP;
 
 #  else
 #    error Unknown platform

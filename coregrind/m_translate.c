@@ -8,7 +8,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -698,7 +698,7 @@ static Bool translations_allowable_from_seg ( NSegment const* seg )
    Bool allowR = False;
 #  endif
    return seg != NULL
-          && (seg->kind == SkAnonC || seg->kind == SkFileC)
+          && (seg->kind == SkAnonC || seg->kind == SkFileC || seg->kind == SkShmC)
           && (seg->hasX || (seg->hasR && allowR));
 }
 
@@ -1343,8 +1343,8 @@ Bool VG_(translate) ( ThreadId tid,
       Char fnname[64] = "";
       VG_(get_fnname_w_offset)(addr, fnname, 64);
       VG_(printf)(
-              "==== BB %d %s(0x%llx) BBs exec'd %lld ====\n",
-              VG_(get_bbs_translated)(), fnname, addr, 
+              "==== SB %d [tid %d] %s(0x%llx) SBs exec'd %lld ====\n",
+              VG_(get_bbs_translated)(), (Int)tid, fnname, addr, 
               bbs_done);
    }
 
@@ -1507,7 +1507,8 @@ Bool VG_(translate) ( ThreadId tid,
           VG_(clo_profile_flags) > 0
           ? (void*) &VG_(run_innerloop__dispatch_profiled)
           : (void*) &VG_(run_innerloop__dispatch_unprofiled);
-#  elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#  elif defined(VGA_ppc32) || defined(VGA_ppc64) \
+        || defined(VGA_arm)
    vta.dispatch = NULL;
 #  else
 #    error "Unknown arch"

@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward
+   Copyright (C) 2000-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -73,6 +73,7 @@ extern SysRes VG_(mk_SysRes_x86_linux)   ( Int  val );
 extern SysRes VG_(mk_SysRes_amd64_linux) ( Long val );
 extern SysRes VG_(mk_SysRes_ppc32_linux) ( UInt  val, UInt  cr0so );
 extern SysRes VG_(mk_SysRes_ppc64_linux) ( ULong val, ULong cr0so );
+extern SysRes VG_(mk_SysRes_arm_linux)   ( Int val );
 extern SysRes VG_(mk_SysRes_ppc32_aix5)  ( UInt val, UInt err );
 extern SysRes VG_(mk_SysRes_ppc64_aix5)  ( ULong val, ULong err );
 extern SysRes VG_(mk_SysRes_x86_darwin)  ( UChar scclass, Bool isErr,

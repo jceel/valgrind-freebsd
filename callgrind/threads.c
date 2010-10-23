@@ -6,7 +6,7 @@
 /*
    This file is part of Callgrind, a Valgrind tool for call tracing.
 
-   Copyright (C) 2002-2009, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
+   Copyright (C) 2002-2010, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -203,7 +203,7 @@ void CLG_(pre_signal)(ThreadId tid, Int sigNum, Bool alt_stack)
 	     tid, sigNum, alt_stack ? "yes":"no");
 
     /* switch to the thread the handler runs in */
-    CLG_(run_thread)(tid);
+    CLG_(switch_thread)(tid);
 
     /* save current execution state */
     exec_state_save();
@@ -243,7 +243,8 @@ void CLG_(post_signal)(ThreadId tid, Int sigNum)
     CLG_DEBUG(0, ">> post_signal(TID %d, sig %d)\n",
 	     tid, sigNum);
 
-    CLG_ASSERT(tid == CLG_(current_tid));
+    /* thread switching potentially needed, eg. with instrumentation off */
+    CLG_(switch_thread)(tid);
     CLG_ASSERT(sigNum == CLG_(current_state).sig);
 
     /* Unwind call stack of this signal handler.

@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -437,8 +437,8 @@ void* VG_(memmove)(void *dest, const void *src, SizeT sz)
       }
    }
    else if (dest > src) {
-      for (i = sz - 1; i >= 0; i--) {
-         ((UChar*)dest)[i] = ((UChar*)src)[i];
+      for (i = 0; i < sz; i++) {
+         ((UChar*)dest)[sz-i-1] = ((UChar*)src)[sz-i-1];
       }
    }
    return dest;

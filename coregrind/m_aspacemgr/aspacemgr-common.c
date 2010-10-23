@@ -9,7 +9,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2006-2009 OpenWorks LLP
+   Copyright (C) 2006-2010 OpenWorks LLP
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -37,6 +37,7 @@
    ************************************************************* */
 
 #include "priv_aspacemgr.h"
+#include "config.h"
 
 
 /*-----------------------------------------------------------------*/
@@ -151,7 +152,8 @@ SysRes VG_(am_do_mmap_NO_NOTIFY)( Addr start, SizeT length, UInt prot,
 {
    SysRes res;
    aspacem_assert(VG_IS_PAGE_ALIGNED(offset));
-#  if defined(VGP_x86_linux) || defined(VGP_ppc32_linux)
+#  if defined(VGP_x86_linux) || defined(VGP_ppc32_linux) \
+      || defined(VGP_arm_linux)
    /* mmap2 uses 4096 chunks even if actual page size is bigger. */
    aspacem_assert((offset % 4096) == 0);
    res = VG_(do_syscall6)(__NR_mmap2, (UWord)start, length,
@@ -430,15 +432,18 @@ VgStack* VG_(am_alloc_VgStack)( /*OUT*/Addr* initial_sp )
 /* Figure out how many bytes of the stack's active area have not
    been used.  Used for estimating if we are close to overflowing it. */
 
-Int VG_(am_get_VgStack_unused_szB)( VgStack* stack )
+SizeT VG_(am_get_VgStack_unused_szB)( VgStack* stack, SizeT limit )
 {
-   Int i;
+   SizeT i;
    UInt* p;
 
    p = (UInt*)&stack->bytes[VG_STACK_GUARD_SZB];
-   for (i = 0; i < VG_STACK_ACTIVE_SZB/sizeof(UInt); i++)
+   for (i = 0; i < VG_STACK_ACTIVE_SZB/sizeof(UInt); i++) {
       if (p[i] != 0xDEADBEEF)
          break;
+      if (i * sizeof(UInt) >= limit)
+         break;
+   }
 
    return i * sizeof(UInt);
 }

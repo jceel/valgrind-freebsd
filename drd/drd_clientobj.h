@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -45,9 +45,10 @@ union drd_clientobj;
 typedef enum {
    ClientMutex     = 1,
    ClientCondvar   = 2,
-   ClientSemaphore = 3,
-   ClientBarrier   = 4,
-   ClientRwlock    = 5,
+   ClientHbvar     = 3,
+   ClientSemaphore = 4,
+   ClientBarrier   = 5,
+   ClientRwlock    = 6,
 } ObjType;
 
 struct any
@@ -83,7 +84,17 @@ struct cond_info
    ExeContext* first_observed_at;
    int         waiter_count;
    Addr        mutex; // Client mutex specified in pthread_cond_wait() call, and
-   // null if no client threads are currently waiting on this cond.var.
+            // null if no client threads are currently waiting on this cond.var.
+};
+
+struct hb_info
+{
+   Addr        a1;
+   ObjType     type;
+   void        (*cleanup)(union drd_clientobj*);
+   void        (*delete_thread)(union drd_clientobj*, DrdThreadId);
+   ExeContext* first_observed_at;
+   OSet*       oset;  // Per-thread order annotation information.
 };
 
 struct semaphore_info
@@ -135,6 +146,7 @@ typedef union drd_clientobj
    struct any            any;
    struct mutex_info     mutex;
    struct cond_info      cond;
+   struct hb_info        hb;
    struct semaphore_info semaphore;
    struct barrier_info   barrier;
    struct rwlock_info    rwlock;

@@ -8,7 +8,7 @@
    This file is part of Helgrind, a Valgrind tool for detecting errors
    in threaded programs.
 
-   Copyright (C) 2007-2009 OpenWorks LLP
+   Copyright (C) 2007-2010 OpenWorks LLP
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -56,6 +56,7 @@
 #include "pub_tool_redir.h"
 #include "valgrind.h"
 #include "helgrind.h"
+#include "config.h"
 
 #define TRACE_PTH_FNS 0
 #define TRACE_QT4_FNS 0
@@ -69,8 +70,19 @@
    ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBPTHREAD_SONAME,f)(args); \
    ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBPTHREAD_SONAME,f)(args)
 
-// Do a client request.  This is a macro rather than a function 
-// so as to avoid having an extra function in the stack trace.
+// Do a client request.  These are macros rather than a functions so
+// as to avoid having an extra frame in stack traces.
+
+// NB: these duplicate definitions in helgrind.h.  But here, we
+// can have better typing (Word etc) and assertions, whereas
+// in helgrind.h we can't.  Obviously it's important the two
+// sets of definitions are kept in sync.
+
+// nuke the previous definitions
+#undef DO_CREQ_v_W
+#undef DO_CREQ_v_WW
+#undef DO_CREQ_W_WW
+#undef DO_CREQ_v_WWW
 
 #define DO_CREQ_v_W(_creqF, _ty1F,_arg1F)                \
    do {                                                  \
@@ -181,8 +193,6 @@ static char* lame_strerror ( long err )
 /*--- pthread_create, pthread_join, pthread_exit               ---*/
 /*----------------------------------------------------------------*/
 
-/* Do not rename this function.  It contains an unavoidable race and
-   so is mentioned by name in glibc-*helgrind*.supp. */
 static void* mythread_wrapper ( void* xargsV )
 {
    volatile Word* xargs = (volatile Word*) xargsV;
@@ -195,7 +205,17 @@ static void* mythread_wrapper ( void* xargsV )
       we're ready because (1) we need to make sure it doesn't exit and
       hence deallocate xargs[] while we still need it, and (2) we
       don't want either parent nor child to proceed until the tool has
-      been notified of the child's pthread_t. */
+      been notified of the child's pthread_t.
+
+      Note that parent and child access args[] without a lock,
+      effectively using args[2] as a spinlock in order to get the
+      parent to wait until the child passes this point.  The parent
+      disables checking on xargs[] before creating the child and
+      re-enables it once the child goes past this point, so the user
+      never sees the race.  The previous approach (suppressing the
+      resulting error) was flawed, because it could leave shadow
+      memory for args[] in a state in which subsequent use of it by
+      the parent would report further races. */
    xargs[2] = 0;
    /* Now we can no longer safely use xargs[]. */
    return (void*) fn( (void*)arg );
@@ -225,6 +245,14 @@ static int pthread_create_WRK(pthread_t *thread, const pthread_attr_t *attr,
    xargs[0] = (Word)start;
    xargs[1] = (Word)arg;
    xargs[2] = 1; /* serves as a spinlock -- sigh */
+   /* Disable checking on the spinlock and the two words used to
+      convey args to the child.  Basically we need to make it appear
+      as if the child never accessed this area, since merely
+      suppressing the resulting races does not address the issue that
+      that piece of the parent's stack winds up in the "wrong" state
+      and therefore may give rise to mysterious races when the parent
+      comes to re-use this piece of stack in some other frame. */
+   VALGRIND_HG_DISABLE_CHECKING(&xargs, sizeof(xargs));
 
    CALL_FN_W_WWWW(ret, fn, thread,attr,mythread_wrapper,&xargs[0]);
 
@@ -243,6 +271,10 @@ static int pthread_create_WRK(pthread_t *thread, const pthread_attr_t *attr,
    } else { 
       DO_PthAPIerror( "pthread_create", ret );
    }
+
+   /* Reenable checking on the area previously used to communicate
+      with the child. */
+   VALGRIND_HG_ENABLE_CHECKING(&xargs, sizeof(xargs));
 
    if (TRACE_PTH_FNS) {
       fprintf(stderr, " :: pth_create -> %d >>\n", ret);
@@ -956,9 +988,10 @@ PTH_FUNC(int, pthreadZubarrierZuinit, // pthread_barrier_init
       fflush(stderr);
    }
 
-   DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_BARRIER_INIT_PRE,
-                pthread_barrier_t*,bar,
-                unsigned long,count);
+   DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_BARRIER_INIT_PRE,
+                 pthread_barrier_t*, bar,
+                 unsigned long, count,
+                 unsigned long, 0/*!resizable*/);
 
    CALL_FN_W_WWW(ret, fn, bar,attr,count);
 

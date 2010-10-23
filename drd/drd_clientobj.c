@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -107,13 +107,13 @@ Bool DRD_(clientobj_present)(const Addr a1, const Addr a2)
 {
    DrdClientobj *p;
 
-   tl_assert(a1 < a2);
+   tl_assert(a1 <= a2);
    VG_(OSetGen_ResetIter)(s_clientobj_set);
    for ( ; (p = VG_(OSetGen_Next)(s_clientobj_set)) != 0; )
    {
       if (a1 <= p->any.a1 && p->any.a1 < a2)
       {
-         return True;  
+         return True;
       }
    }
    return False;
@@ -144,7 +144,10 @@ DrdClientobj* DRD_(clientobj_add)(const Addr a1, const ObjType t)
    p->any.first_observed_at = VG_(record_ExeContext)(VG_(get_running_tid)(), 0);
    VG_(OSetGen_Insert)(s_clientobj_set, p);
    tl_assert(VG_(OSetGen_Lookup)(s_clientobj_set, &a1) == p);
-   DRD_(start_suppression)(a1, a1 + 1, "clientobj");
+   if (t == ClientHbvar)
+      DRD_(mark_hbvar)(a1);
+   else
+      DRD_(start_suppression)(a1, a1 + 1, "clientobj");
    return p;
 }
 
@@ -208,7 +211,7 @@ void DRD_(clientobj_stop_using_mem)(const Addr a1, const Addr a2)
 
    tl_assert(s_clientobj_set);
 
-   if (! DRD_(is_any_suppressed)(a1, a2))
+   if (! DRD_(range_contains_suppression_or_hbvar)(a1, a2))
       return;
 
    VG_(OSetGen_ResetIterAt)(s_clientobj_set, &a1);
@@ -249,6 +252,7 @@ const char* DRD_(clientobj_type_name)(const ObjType t)
    {
    case ClientMutex:     return "mutex";
    case ClientCondvar:   return "cond";
+   case ClientHbvar:     return "order annotation";
    case ClientSemaphore: return "semaphore";
    case ClientBarrier:   return "barrier";
    case ClientRwlock:    return "rwlock";

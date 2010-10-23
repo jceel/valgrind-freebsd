@@ -7,7 +7,7 @@
 /*
   This file is part of DRD, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -28,7 +28,7 @@
 */
 
 /* ---------------------------------------------------------------------
-   ALL THE CODE IN THIS FILE RUNS ON THE SIMULATED CPU. 
+   ALL THE CODE IN THIS FILE RUNS ON THE SIMULATED CPU.
 
    These functions are not called directly - they're the targets of code
    redirection or load notifications (see pub_core_redir.h for info).
@@ -51,6 +51,7 @@
 #include <assert.h>         /* assert() */
 #include <pthread.h>        /* pthread_mutex_t */
 #include <semaphore.h>      /* sem_t */
+#include <stdint.h>         /* uintptr_t */
 #include <stdio.h>          /* fprintf() */
 #include <stdlib.h>         /* malloc(), free() */
 #include <unistd.h>         /* confstr() */
@@ -181,6 +182,8 @@ static MutexT DRD_(pthread_to_drd_mutex_type)(const int kind)
    }
 }
 
+#define IS_ALIGNED(p) (((uintptr_t)(p) & (sizeof(*(p)) - 1)) == 0)
+
 /**
  * Read the mutex type stored in the client memory used for the mutex
  * implementation.
@@ -198,19 +201,25 @@ static __always_inline MutexT DRD_(mutex_type)(pthread_mutex_t* mutex)
 {
 #if defined(HAVE_PTHREAD_MUTEX_T__M_KIND)
    /* glibc + LinuxThreads. */
-   const int kind = mutex->__m_kind & 3;
-   return DRD_(pthread_to_drd_mutex_type)(kind);
+   if (IS_ALIGNED(&mutex->__m_kind))
+   {
+      const int kind = mutex->__m_kind & 3;
+      return DRD_(pthread_to_drd_mutex_type)(kind);
+   }
 #elif defined(HAVE_PTHREAD_MUTEX_T__DATA__KIND)
    /* glibc + NPTL. */
-   const int kind = mutex->__data.__kind & 3;
-   return DRD_(pthread_to_drd_mutex_type)(kind);
+   if (IS_ALIGNED(&mutex->__data.__kind))
+   {
+      const int kind = mutex->__data.__kind & 3;
+      return DRD_(pthread_to_drd_mutex_type)(kind);
+   }
 #else
    /*
     * Another POSIX threads implementation. The mutex type won't be printed
     * when enabling --trace-mutex=yes.
     */
-   return mutex_type_unknown;
 #endif
+   return mutex_type_unknown;
 }
 
 /**
@@ -339,9 +348,7 @@ static void DRD_(set_main_thread_state)(void)
    // Make sure that DRD knows about the main thread's POSIX thread ID.
    VALGRIND_DO_CLIENT_REQUEST(res, -1, VG_USERREQ__SET_PTHREADID,
                               pthread_self(), 0, 0, 0, 0);
-
 }
-
 
 /*
  * Note: as of today there exist three different versions of pthread_create

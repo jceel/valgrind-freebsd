@@ -8,7 +8,7 @@
    This file is part of Helgrind, a Valgrind tool for detecting errors
    in threaded programs.
 
-   Copyright (C) 2007-2009 OpenWorks Ltd
+   Copyright (C) 2007-2010 OpenWorks Ltd
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -178,8 +178,15 @@ typedef
             Int         szB;
             Bool        isWrite;
             Thread*     thr;
+            /* descr1/2 provide a description of stack/global locs */
             XArray*     descr1; /* XArray* of HChar */
             XArray*     descr2; /* XArray* of HChar */
+            /* halloc/haddr/hszB describe the addr if it is a heap block. */
+            ExeContext* hctxt;
+            Addr        haddr;
+            SizeT       hszB;
+            /* h1_* and h2_* provide some description of a previously
+               observed access with which we are conflicting. */
             Thread*     h1_ct; /* non-NULL means h1 info present */
             ExeContext* h1_ct_mbsegstartEC;
             ExeContext* h1_ct_mbsegendEC;
@@ -215,8 +222,10 @@ typedef
             ExeContext* after_ec;
          } LockOrder;
          struct {
-            Thread* thr;
-            HChar*  errstr; /* persistent, in tool-arena */
+            Thread*     thr;
+            HChar*      errstr; /* persistent, in tool-arena */
+            HChar*      auxstr; /* optional, persistent, in tool-arena */
+            ExeContext* auxctx; /* optional */
          } Misc;
       } XE;
    }
@@ -263,33 +272,52 @@ UInt HG_(update_extra) ( Error* err )
       if (0)
          VG_(printf)("HG_(update_extra): "
                      "%d conflicting-event queries\n", xxx);
+
+      tl_assert(!xe->XE.Race.hctxt);
       tl_assert(!xe->XE.Race.descr1);
       tl_assert(!xe->XE.Race.descr2);
 
-      xe->XE.Race.descr1
-         = VG_(newXA)( HG_(zalloc), "hg.update_extra.Race.descr1",
-                       HG_(free), sizeof(HChar) );
-      xe->XE.Race.descr2
-         = VG_(newXA)( HG_(zalloc), "hg.update_extra.Race.descr2",
-                       HG_(free), sizeof(HChar) );
+      /* First, see if it's in any heap block.  Unfortunately this
+         means a linear search through all allocated heap blocks.  The
+         assertion says that if it's detected as a heap block, then we
+         must have an allocation context for it, since all heap blocks
+         should have an allocation context. */
+      Bool is_heapblock
+         = HG_(mm_find_containing_block)( 
+              &xe->XE.Race.hctxt, &xe->XE.Race.haddr, &xe->XE.Race.hszB,
+              xe->XE.Race.data_addr
+           );
+      tl_assert(is_heapblock == (xe->XE.Race.hctxt != NULL));
 
-      (void) VG_(get_data_description)( xe->XE.Race.descr1,
-                                        xe->XE.Race.descr2,
-                                        xe->XE.Race.data_addr );
+      if (!xe->XE.Race.hctxt) {
+         /* It's not in any heap block.  See if we can map it to a
+            stack or global symbol. */
 
-      /* If there's nothing in descr1/2, free it.  Why is it safe to
-         to VG_(indexXA) at zero here?  Because
-         VG_(get_data_description) guarantees to zero terminate
-         descr1/2 regardless of the outcome of the call.  So there's
-         always at least one element in each XA after the call.
-      */
-      if (0 == VG_(strlen)( VG_(indexXA)( xe->XE.Race.descr1, 0 ))) {
-         VG_(deleteXA)( xe->XE.Race.descr1 );
-         xe->XE.Race.descr1 = NULL;
-      }
-      if (0 == VG_(strlen)( VG_(indexXA)( xe->XE.Race.descr2, 0 ))) {
-         VG_(deleteXA)( xe->XE.Race.descr2 );
-         xe->XE.Race.descr2 = NULL;
+         xe->XE.Race.descr1
+            = VG_(newXA)( HG_(zalloc), "hg.update_extra.Race.descr1",
+                          HG_(free), sizeof(HChar) );
+         xe->XE.Race.descr2
+            = VG_(newXA)( HG_(zalloc), "hg.update_extra.Race.descr2",
+                          HG_(free), sizeof(HChar) );
+
+         (void) VG_(get_data_description)( xe->XE.Race.descr1,
+                                           xe->XE.Race.descr2,
+                                           xe->XE.Race.data_addr );
+
+         /* If there's nothing in descr1/2, free it.  Why is it safe to
+            to VG_(indexXA) at zero here?  Because
+            VG_(get_data_description) guarantees to zero terminate
+            descr1/2 regardless of the outcome of the call.  So there's
+            always at least one element in each XA after the call.
+         */
+         if (0 == VG_(strlen)( VG_(indexXA)( xe->XE.Race.descr1, 0 ))) {
+            VG_(deleteXA)( xe->XE.Race.descr1 );
+            xe->XE.Race.descr1 = NULL;
+         }
+         if (0 == VG_(strlen)( VG_(indexXA)( xe->XE.Race.descr2, 0 ))) {
+            VG_(deleteXA)( xe->XE.Race.descr2 );
+            xe->XE.Race.descr2 = NULL;
+         }
       }
 
       /* And poke around in the conflicting-event map, to see if we
@@ -481,7 +509,8 @@ void HG_(record_error_PthAPIerror) ( Thread* thr, HChar* fnname,
                             XE_PthAPIerror, 0, NULL, &xe );
 }
 
-void HG_(record_error_Misc) ( Thread* thr, HChar* errstr )
+void HG_(record_error_Misc_w_aux) ( Thread* thr, HChar* errstr,
+                                    HChar* auxstr, ExeContext* auxctx )
 {
    XError xe;
    tl_assert( HG_(is_sane_Thread)(thr) );
@@ -490,11 +519,18 @@ void HG_(record_error_Misc) ( Thread* thr, HChar* errstr )
    xe.tag = XE_Misc;
    xe.XE.Misc.thr    = thr;
    xe.XE.Misc.errstr = string_table_strdup(errstr);
+   xe.XE.Misc.auxstr = auxstr ? string_table_strdup(auxstr) : NULL;
+   xe.XE.Misc.auxctx = auxctx;
    // FIXME: tid vs thr
    tl_assert( HG_(is_sane_ThreadId)(thr->coretid) );
    tl_assert( thr->coretid != VG_INVALID_THREADID );
    VG_(maybe_record_error)( thr->coretid,
                             XE_Misc, 0, NULL, &xe );
+}
+
+void HG_(record_error_Misc) ( Thread* thr, HChar* errstr )
+{
+   HG_(record_error_Misc_w_aux)(thr, errstr, NULL, NULL);
 }
 
 Bool HG_(eq_Error) ( VgRes not_used, Error* e1, Error* e2 )
@@ -591,7 +627,7 @@ static Bool announce_one_thread ( Thread* thr )
    if (VG_(clo_xml)) {
 
       VG_(printf_xml)("<announcethread>\n");
-      VG_(printf_xml)("  <hthreadid>%d</threadid>\n", thr->errmsg_index);
+      VG_(printf_xml)("  <hthreadid>%d</hthreadid>\n", thr->errmsg_index);
       if (thr->errmsg_index == 1) {
          tl_assert(thr->created_at == NULL);
          VG_(printf_xml)("  <isrootthread></isrootthread>\n");
@@ -690,6 +726,11 @@ void HG_(pp_Error) ( Error* err )
                (Int)xe->XE.Misc.thr->errmsg_index );
          emit( "  </xwhat>\n" );
          VG_(pp_ExeContext)( VG_(get_error_where)(err) );
+         if (xe->XE.Misc.auxstr) {
+            emit("  <auxwhat>%s</auxwhat>\n", xe->XE.Misc.auxstr);
+            if (xe->XE.Misc.auxctx)
+               VG_(pp_ExeContext)( xe->XE.Misc.auxctx );
+         }
 
       } else {
 
@@ -697,6 +738,11 @@ void HG_(pp_Error) ( Error* err )
                (Int)xe->XE.Misc.thr->errmsg_index,
                xe->XE.Misc.errstr );
          VG_(pp_ExeContext)( VG_(get_error_where)(err) );
+         if (xe->XE.Misc.auxstr) {
+            emit(" %s\n", xe->XE.Misc.auxstr);
+            if (xe->XE.Misc.auxctx)
+               VG_(pp_ExeContext)( xe->XE.Misc.auxctx );
+         }
 
       }
       break;
@@ -991,6 +1037,23 @@ void HG_(pp_Error) ( Error* err )
             }
          }
 
+      }
+
+      /* If we have a description of the address in terms of a heap
+         block, show it. */
+      if (xe->XE.Race.hctxt) {
+         SizeT delta = err_ga - xe->XE.Race.haddr;
+         if (xml) {
+            emit("  <auxwhat>Address %#lx is %ld bytes inside a block "
+                 "of size %ld alloc'd</auxwhat>\n", err_ga, delta, 
+                 xe->XE.Race.hszB);
+            VG_(pp_ExeContext)( xe->XE.Race.hctxt );
+         } else {
+            emit(" Address %#lx is %ld bytes inside a block "
+                 "of size %ld alloc'd\n", err_ga, delta, 
+                 xe->XE.Race.hszB);
+            VG_(pp_ExeContext)( xe->XE.Race.hctxt );
+         }
       }
 
       /* If we have a better description of the address, show it.

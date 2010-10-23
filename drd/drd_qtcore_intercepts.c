@@ -7,7 +7,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -28,7 +28,7 @@
 */
 
 /* ---------------------------------------------------------------------
-   ALL THE CODE IN THIS FILE RUNS ON THE SIMULATED CPU. 
+   ALL THE CODE IN THIS FILE RUNS ON THE SIMULATED CPU.
 
    These functions are not called directly - they're the targets of code
    redirection or load notifications (see pub_core_redir.h for info).

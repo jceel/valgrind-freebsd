@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward
+   Copyright (C) 2000-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -214,6 +214,9 @@
 /* --- Sonames for Linux ELF linkers, plus unencoded versions. --- */
 
 #if defined(VGO_linux)
+
+#define  VG_Z_LD_LINUX_SO_3         ldZhlinuxZdsoZd3           // ld-linux.so.3
+#define  VG_U_LD_LINUX_SO_3         "ld-linux.so.3"
 
 #define  VG_Z_LD_LINUX_SO_2         ldZhlinuxZdsoZd2           // ld-linux.so.2
 #define  VG_U_LD_LINUX_SO_2         "ld-linux.so.2"

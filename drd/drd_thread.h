@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -77,6 +77,7 @@ typedef struct
    Addr      stack_max;     /**< Top of stack. */
    SizeT     stack_size;    /**< Maximum size of stack. */
    char      name[64];      /**< User-assigned thread name. */
+   Bool      on_alt_stack;
    /** Indicates whether the Valgrind core knows about this thread. */
    Bool      vg_thread_exists;
    /** Indicates whether there is an associated POSIX thread ID. */
@@ -142,6 +143,10 @@ Addr DRD_(thread_get_stack_min)(const DrdThreadId tid);
 Addr DRD_(thread_get_stack_min_min)(const DrdThreadId tid);
 Addr DRD_(thread_get_stack_max)(const DrdThreadId tid);
 SizeT DRD_(thread_get_stack_size)(const DrdThreadId tid);
+Bool DRD_(thread_get_on_alt_stack)(const DrdThreadId tid);
+void DRD_(thread_set_on_alt_stack)(const DrdThreadId tid,
+                                   const Bool on_alt_stack);
+Int DRD_(thread_get_threads_on_alt_stack)(void);
 void DRD_(thread_set_pthreadid)(const DrdThreadId tid, const PThreadId ptid);
 Bool DRD_(thread_get_joinable)(const DrdThreadId tid);
 void DRD_(thread_set_joinable)(const DrdThreadId tid, const Bool joinable);
@@ -165,7 +170,8 @@ void DRD_(thread_new_segment_and_combine_vc)(DrdThreadId tid,
 void DRD_(thread_update_conflict_set)(const DrdThreadId tid,
                                       const VectorClock* const old_vc);
 
-void DRD_(thread_stop_using_mem)(const Addr a1, const Addr a2);
+void DRD_(thread_stop_using_mem)(const Addr a1, const Addr a2,
+                                 const Bool dont_clear_access);
 void DRD_(thread_set_record_loads)(const DrdThreadId tid, const Bool enabled);
 void DRD_(thread_set_record_stores)(const DrdThreadId tid, const Bool enabled);
 void DRD_(thread_print_all)(void);
@@ -238,7 +244,7 @@ Bool DRD_(running_thread_inside_pthread_create)(void)
 }
 
 /**
- * Reports whether or not recording of memory loads is enabled for the 
+ * Reports whether or not recording of memory loads is enabled for the
  * currently running client thread.
  */
 static __inline__
@@ -254,7 +260,7 @@ Bool DRD_(running_thread_is_recording_loads)(void)
 }
 
 /**
- * Reports whether or not recording memory stores is enabled for the 
+ * Reports whether or not recording memory stores is enabled for the
  * currently running client thread.
  */
 static __inline__

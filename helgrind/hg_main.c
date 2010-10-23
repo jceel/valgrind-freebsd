@@ -8,10 +8,10 @@
    This file is part of Helgrind, a Valgrind tool for detecting errors
    in threaded programs.
 
-   Copyright (C) 2007-2009 OpenWorks LLP
+   Copyright (C) 2007-2010 OpenWorks LLP
       info@open-works.co.uk
 
-   Copyright (C) 2007-2009 Apple, Inc.
+   Copyright (C) 2007-2010 Apple, Inc.
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -1084,6 +1084,13 @@ static void shadow_mem_make_NoAccess ( Thread* thr, Addr aIN, SizeT len )
    libhb_srange_noaccess( thr->hbthr, aIN, len );
 }
 
+static void shadow_mem_make_Untracked ( Thread* thr, Addr aIN, SizeT len )
+{
+   if (0 && len > 500)
+      VG_(printf)("make Untracked ( %#lx, %ld )\n", aIN, len );
+   libhb_srange_untrack( thr->hbthr, aIN, len );
+}
+
 
 /*----------------------------------------------------------------*/
 /*--- Event handlers (evh__* functions)                        ---*/
@@ -1494,6 +1501,16 @@ void evh__new_mem ( Addr a, SizeT len ) {
 }
 
 static
+void evh__new_mem_stack ( Addr a, SizeT len ) {
+   if (SHOW_EVENTS >= 2)
+      VG_(printf)("evh__new_mem_stack(%p, %lu)\n", (void*)a, len );
+   shadow_mem_make_New( get_current_Thread(),
+                        -VG_STACK_REDZONE_SZB + a, len );
+   if (len >= SCE_BIGRANGE_T && (HG_(clo_sanity_flags) & SCE_BIGRANGE))
+      all__sanity_check("evh__new_mem_stack-post");
+}
+
+static
 void evh__new_mem_w_tid ( Addr a, SizeT len, ThreadId tid ) {
    if (SHOW_EVENTS >= 2)
       VG_(printf)("evh__new_mem_w_tid(%p, %lu)\n", (void*)a, len );
@@ -1531,11 +1548,22 @@ void evh__set_perms ( Addr a, SizeT len,
 
 static
 void evh__die_mem ( Addr a, SizeT len ) {
+   // urr, libhb ignores this.
    if (SHOW_EVENTS >= 2)
       VG_(printf)("evh__die_mem(%p, %lu)\n", (void*)a, len );
    shadow_mem_make_NoAccess( get_current_Thread(), a, len );
    if (len >= SCE_BIGRANGE_T && (HG_(clo_sanity_flags) & SCE_BIGRANGE))
       all__sanity_check("evh__die_mem-post");
+}
+
+static
+void evh__untrack_mem ( Addr a, SizeT len ) {
+   // whereas it doesn't ignore this
+   if (SHOW_EVENTS >= 2)
+      VG_(printf)("evh__untrack_mem(%p, %lu)\n", (void*)a, len );
+   shadow_mem_make_Untracked( get_current_Thread(), a, len );
+   if (len >= SCE_BIGRANGE_T && (HG_(clo_sanity_flags) & SCE_BIGRANGE))
+      all__sanity_check("evh__untrack_mem-post");
 }
 
 static
@@ -1952,8 +1980,14 @@ static void evh__HG_PTHREAD_MUTEX_LOCK_PRE ( ThreadId tid,
          this is a real lock operation (not a speculative "tryLock"
          kind of thing).  Duh.  Deadlock coming up; but at least
          produce an error message. */
-      HG_(record_error_Misc)( thr, "Attempt to re-lock a "
-                                   "non-recursive lock I already hold" );
+      HChar* errstr = "Attempt to re-lock a "
+                      "non-recursive lock I already hold";
+      HChar* auxstr = "Lock was previously acquired";
+      if (lk->acquired_at) {
+         HG_(record_error_Misc_w_aux)( thr, errstr, auxstr, lk->acquired_at );
+      } else {
+         HG_(record_error_Misc)( thr, errstr );
+      }
    }
 }
 
@@ -2004,7 +2038,7 @@ static void evh__HG_PTHREAD_MUTEX_UNLOCK_POST ( ThreadId tid, void* mutex )
 
 
 /* ------------------------------------------------------- */
-/* -------------- events to do with mutexes -------------- */
+/* -------------- events to do with spinlocks ------------ */
 /* ------------------------------------------------------- */
 
 /* All a bit of a kludge.  Pretend we're really dealing with ordinary
@@ -2701,6 +2735,7 @@ static void evh__HG_POSIX_SEM_WAIT_POST ( ThreadId tid, void* sem )
 typedef
    struct {
       Bool    initted; /* has it yet been initted by guest? */
+      Bool    resizable; /* is resizing allowed? */
       UWord   size;    /* declared size */
       XArray* waiting; /* XA of Thread*.  # present is 0 .. .size */
    }
@@ -2760,15 +2795,16 @@ static void map_barrier_to_Bar_delete ( void* barrier ) {
 
 static void evh__HG_PTHREAD_BARRIER_INIT_PRE ( ThreadId tid,
                                                void* barrier,
-                                               UWord count )
+                                               UWord count,
+                                               UWord resizable )
 {
    Thread* thr;
    Bar*    bar;
 
    if (SHOW_EVENTS >= 1)
       VG_(printf)("evh__HG_PTHREAD_BARRIER_INIT_PRE"
-                  "(tid=%d, barrier=%p, count=%lu)\n", 
-                  (Int)tid, (void*)barrier, count );
+                  "(tid=%d, barrier=%p, count=%lu, resizable=%lu)\n", 
+                  (Int)tid, (void*)barrier, count, resizable );
 
    thr = map_threads_maybe_lookup( tid );
    tl_assert(thr); /* cannot fail - Thread* must already exist */
@@ -2776,6 +2812,12 @@ static void evh__HG_PTHREAD_BARRIER_INIT_PRE ( ThreadId tid,
    if (count == 0) {
       HG_(record_error_Misc)(
          thr, "pthread_barrier_init: 'count' argument is zero"
+      );
+   }
+
+   if (resizable != 0 && resizable != 1) {
+      HG_(record_error_Misc)(
+         thr, "pthread_barrier_init: invalid 'resizable' argument"
       );
    }
 
@@ -2802,8 +2844,9 @@ static void evh__HG_PTHREAD_BARRIER_INIT_PRE ( ThreadId tid,
 
    tl_assert(bar->waiting);
    tl_assert(VG_(sizeXA)(bar->waiting) == 0);
-   bar->initted = True;
-   bar->size    = count;
+   bar->initted   = True;
+   bar->resizable = resizable == 1 ? True : False;
+   bar->size      = count;
 }
 
 
@@ -2848,6 +2891,43 @@ static void evh__HG_PTHREAD_BARRIER_DESTROY_PRE ( ThreadId tid,
       uninitialised again since otherwise a later _init call will
       elicit a duplicate-init error.  */
    map_barrier_to_Bar_delete( barrier );
+}
+
+
+/* All the threads have arrived.  Now do the Interesting Bit.  Get a
+   new synchronisation object and do a weak send to it from all the
+   participating threads.  This makes its vector clocks be the join of
+   all the individual threads' vector clocks.  Then do a strong
+   receive from it back to all threads, so that their VCs are a copy
+   of it (hence are all equal to the join of their original VCs.) */
+static void do_barrier_cross_sync_and_empty ( Bar* bar )
+{
+   /* XXX check bar->waiting has no duplicates */
+   UWord i;
+   SO*   so = libhb_so_alloc();
+
+   tl_assert(bar->waiting);
+   tl_assert(VG_(sizeXA)(bar->waiting) == bar->size);
+
+   /* compute the join ... */
+   for (i = 0; i < bar->size; i++) {
+      Thread* t = *(Thread**)VG_(indexXA)(bar->waiting, i);
+      Thr* hbthr = t->hbthr;
+      libhb_so_send( hbthr, so, False/*weak send*/ );
+   }
+   /* ... and distribute to all threads */
+   for (i = 0; i < bar->size; i++) {
+      Thread* t = *(Thread**)VG_(indexXA)(bar->waiting, i);
+      Thr* hbthr = t->hbthr;
+      libhb_so_recv( hbthr, so, True/*strong recv*/ );
+   }
+
+   /* finally, we must empty out the waiting vector */
+   VG_(dropTailXA)(bar->waiting, VG_(sizeXA)(bar->waiting));
+
+   /* and we don't need this any more.  Perhaps a stack-allocated
+      SO would be better? */
+   libhb_so_dealloc(so);
 }
 
 
@@ -2896,8 +2976,7 @@ static void evh__HG_PTHREAD_BARRIER_WAIT_PRE ( ThreadId tid,
    */
    Thread* thr;
    Bar*    bar;
-   SO*     so;
-   UWord   present, i;
+   UWord   present;
 
    if (SHOW_EVENTS >= 1)
       VG_(printf)("evh__HG_PTHREAD_BARRIER_WAIT_PRE"
@@ -2930,39 +3009,74 @@ static void evh__HG_PTHREAD_BARRIER_WAIT_PRE ( ThreadId tid,
    if (present < bar->size)
       return;
 
-   /* All the threads have arrived.  Now do the Interesting Bit.  Get
-      a new synchronisation object and do a weak send to it from all
-      the participating threads.  This makes its vector clocks be the
-      join of all the individual threads' vector clocks.  Then do a
-      strong receive from it back to all threads, so that their VCs
-      are a copy of it (hence are all equal to the join of their
-      original VCs.) */
-   so = libhb_so_alloc();
+   do_barrier_cross_sync_and_empty(bar);
+}
 
-   /* XXX check ->waiting has no duplicates */
 
+static void evh__HG_PTHREAD_BARRIER_RESIZE_PRE ( ThreadId tid,
+                                                 void* barrier,
+                                                 UWord newcount )
+{
+   Thread* thr;
+   Bar*    bar;
+   UWord   present;
+
+   if (SHOW_EVENTS >= 1)
+      VG_(printf)("evh__HG_PTHREAD_BARRIER_RESIZE_PRE"
+                  "(tid=%d, barrier=%p, newcount=%lu)\n", 
+                  (Int)tid, (void*)barrier, newcount );
+
+   thr = map_threads_maybe_lookup( tid );
+   tl_assert(thr); /* cannot fail - Thread* must already exist */
+
+   bar = map_barrier_to_Bar_lookup_or_alloc(barrier);
+   tl_assert(bar);
+
+   if (!bar->initted) {
+      HG_(record_error_Misc)(
+         thr, "pthread_barrier_resize: barrier is uninitialised"
+      );
+      return; /* client is broken .. avoid assertions below */
+   }
+
+   if (!bar->resizable) {
+      HG_(record_error_Misc)(
+         thr, "pthread_barrier_resize: barrier is may not be resized"
+      );
+      return; /* client is broken .. avoid assertions below */
+   }
+
+   if (newcount == 0) {
+      HG_(record_error_Misc)(
+         thr, "pthread_barrier_resize: 'newcount' argument is zero"
+      );
+      return; /* client is broken .. avoid assertions below */
+   }
+
+   /* guaranteed by _INIT_PRE above */
+   tl_assert(bar->size > 0);
    tl_assert(bar->waiting);
-   tl_assert(VG_(sizeXA)(bar->waiting) == bar->size);
+   /* Guaranteed by this fn */
+   tl_assert(newcount > 0);
 
-   /* compute the join ... */
-   for (i = 0; i < bar->size; i++) {
-      Thread* t = *(Thread**)VG_(indexXA)(bar->waiting, i);
-      Thr* hbthr = t->hbthr;
-      libhb_so_send( hbthr, so, False/*weak send*/ );
+   if (newcount >= bar->size) {
+      /* Increasing the capacity.  There's no possibility of threads
+         moving on from the barrier in this situation, so just note
+         the fact and do nothing more. */
+      bar->size = newcount;
+   } else {
+      /* Decreasing the capacity.  If we decrease it to be equal or
+         below the number of waiting threads, they will now move past
+         the barrier, so need to mess with dep edges in the same way
+         as if the barrier had filled up normally. */
+      present = VG_(sizeXA)(bar->waiting);
+      tl_assert(present >= 0 && present <= bar->size);
+      if (newcount <= present) {
+         bar->size = present; /* keep the cross_sync call happy */
+         do_barrier_cross_sync_and_empty(bar);
+      }
+      bar->size = newcount;
    }
-   /* ... and distribute to all threads */
-   for (i = 0; i < bar->size; i++) {
-      Thread* t = *(Thread**)VG_(indexXA)(bar->waiting, i);
-      Thr* hbthr = t->hbthr;
-      libhb_so_recv( hbthr, so, True/*strong recv*/ );
-   }
-
-   /* finally, we must empty out the waiting vector */
-   VG_(dropTailXA)(bar->waiting, VG_(sizeXA)(bar->waiting));
-
-   /* and we don't need this any more.  Perhaps a stack-allocated
-      SO would be better? */
-   libhb_so_dealloc(so);
 }
 
 
@@ -3770,6 +3884,66 @@ static SizeT hg_cli_malloc_usable_size ( ThreadId tid, void* p )
 }
 
 
+/* For error creation: map 'data_addr' to a malloc'd chunk, if any.
+   Slow linear search.  With a bit of hash table help if 'data_addr'
+   is either the start of a block or up to 15 word-sized steps along
+   from the start of a block. */
+
+static inline Bool addr_is_in_MM_Chunk( MallocMeta* mm, Addr a )
+{
+   /* Accept 'a' as within 'mm' if 'mm's size is zero and 'a' points
+      right at it. */
+  if (UNLIKELY(mm->szB == 0 && a == mm->payload))
+     return True;
+  /* else normal interval rules apply */
+  if (LIKELY(a < mm->payload)) return False;
+  if (LIKELY(a >= mm->payload + mm->szB)) return False;
+  return True;
+}
+
+Bool HG_(mm_find_containing_block)( /*OUT*/ExeContext** where,
+                                    /*OUT*/Addr*        payload,
+                                    /*OUT*/SizeT*       szB,
+                                    Addr                data_addr )
+{
+   MallocMeta* mm;
+   Int i;
+   const Int n_fast_check_words = 16;
+
+   /* First, do a few fast searches on the basis that data_addr might
+      be exactly the start of a block or up to 15 words inside.  This
+      can happen commonly via the creq
+      _VG_USERREQ__HG_CLEAN_MEMORY_HEAPBLOCK. */
+   for (i = 0; i < n_fast_check_words; i++) {
+      mm = VG_(HT_lookup)( hg_mallocmeta_table,
+                           data_addr - (UWord)(UInt)i * sizeof(UWord) );
+      if (UNLIKELY(mm && addr_is_in_MM_Chunk(mm, data_addr)))
+         goto found;
+   }
+
+   /* Well, this totally sucks.  But without using an interval tree or
+      some such, it's hard to see how to do better.  We have to check
+      every block in the entire table. */
+   VG_(HT_ResetIter)(hg_mallocmeta_table);
+   while ( (mm = VG_(HT_Next)(hg_mallocmeta_table)) ) {
+      if (UNLIKELY(addr_is_in_MM_Chunk(mm, data_addr)))
+         goto found;
+   }
+
+   /* Not found.  Bah. */
+   return False;
+   /*NOTREACHED*/
+
+  found:
+   tl_assert(mm);
+   tl_assert(addr_is_in_MM_Chunk(mm, data_addr));
+   if (where)   *where   = mm->where;
+   if (payload) *payload = mm->payload;
+   if (szB)     *szB     = mm->szB;
+   return True;
+}
+
+
 /*--------------------------------------------------------------*/
 /*--- Instrumentation                                        ---*/
 /*--------------------------------------------------------------*/
@@ -3885,6 +4059,7 @@ static Bool is_in_dynamic_linker_shared_object( Addr64 ga )
    if (0) VG_(printf)("%s\n", soname);
 
 #  if defined(VGO_linux)
+   if (VG_STREQ(soname, VG_U_LD_LINUX_SO_3))        return True;
    if (VG_STREQ(soname, VG_U_LD_LINUX_SO_2))        return True;
    if (VG_STREQ(soname, VG_U_LD_LINUX_X86_64_SO_2)) return True;
    if (VG_STREQ(soname, VG_U_LD64_SO_1))            return True;
@@ -4008,19 +4183,41 @@ IRSB* hg_instrument ( VgCallbackClosure* closure,
             break;
          }
 
-         case Ist_Store:
-            /* It seems we pretend that store-conditionals don't
-               exist, viz, just ignore them ... */
-            if (st->Ist.Store.resSC == IRTemp_INVALID) {
+         case Ist_LLSC: {
+            /* We pretend store-conditionals don't exist, viz, ignore
+               them.  Whereas load-linked's are treated the same as
+               normal loads. */
+            IRType dataTy;
+            if (st->Ist.LLSC.storedata == NULL) {
+               /* LL */
+               dataTy = typeOfIRTemp(bbIn->tyenv, st->Ist.LLSC.result);
                if (!inLDSO) {
-                  instrument_mem_access( 
-                     bbOut, 
-                     st->Ist.Store.addr, 
-                     sizeofIRType(typeOfIRExpr(bbIn->tyenv, st->Ist.Store.data)),
-                     True/*isStore*/,
+                  instrument_mem_access(
+                     bbOut,
+                     st->Ist.LLSC.addr,
+                     sizeofIRType(dataTy),
+                     False/*!isStore*/,
                      sizeofIRType(hWordTy)
                   );
                }
+            } else {
+               /* SC */
+               /*ignore */
+            }
+            break;
+         }
+
+         case Ist_Store:
+            /* It seems we pretend that store-conditionals don't
+               exist, viz, just ignore them ... */
+            if (!inLDSO) {
+               instrument_mem_access( 
+                  bbOut, 
+                  st->Ist.Store.addr, 
+                  sizeofIRType(typeOfIRExpr(bbIn->tyenv, st->Ist.Store.data)),
+                  True/*isStore*/,
+                  sizeofIRType(hWordTy)
+               );
             }
             break;
 
@@ -4130,6 +4327,39 @@ Bool hg_handle_client_request ( ThreadId tid, UWord* args, UWord* ret)
          if (args[2] > 0) { /* length */
             evh__die_mem(args[1], args[2]);
             /* and then set it to New */
+            evh__new_mem(args[1], args[2]);
+         }
+         break;
+
+      case _VG_USERREQ__HG_CLEAN_MEMORY_HEAPBLOCK: {
+         Addr  payload = 0;
+         SizeT pszB = 0;
+         if (0) VG_(printf)("VG_USERREQ__HG_CLEAN_MEMORY_HEAPBLOCK(%#lx)\n",
+                            args[1]);
+         if (HG_(mm_find_containing_block)(NULL, &payload, &pszB, args[1])) {
+            if (pszB > 0) {
+               evh__die_mem(payload, pszB);
+               evh__new_mem(payload, pszB);
+            }
+            *ret = pszB;
+         } else {
+            *ret = (UWord)-1;
+         }
+         break;
+      }
+
+      case _VG_USERREQ__HG_ARANGE_MAKE_UNTRACKED:
+         if (0) VG_(printf)("HG_ARANGE_MAKE_UNTRACKED(%#lx,%ld)\n",
+                            args[1], args[2]);
+         if (args[2] > 0) { /* length */
+            evh__untrack_mem(args[1], args[2]);
+         }
+         break;
+
+      case _VG_USERREQ__HG_ARANGE_MAKE_TRACKED:
+         if (0) VG_(printf)("HG_ARANGE_MAKE_TRACKED(%#lx,%ld)\n",
+                            args[1], args[2]);
+         if (args[2] > 0) { /* length */
             evh__new_mem(args[1], args[2]);
          }
          break;
@@ -4304,8 +4534,15 @@ Bool hg_handle_client_request ( ThreadId tid, UWord* args, UWord* ret)
          break;
 
       case _VG_USERREQ__HG_PTHREAD_BARRIER_INIT_PRE:
-         /* pth_bar_t*, ulong */
-         evh__HG_PTHREAD_BARRIER_INIT_PRE( tid, (void*)args[1], args[2] );
+         /* pth_bar_t*, ulong count, ulong resizable */
+         evh__HG_PTHREAD_BARRIER_INIT_PRE( tid, (void*)args[1],
+                                                args[2], args[3] );
+         break;
+
+      case _VG_USERREQ__HG_PTHREAD_BARRIER_RESIZE_PRE:
+         /* pth_bar_t*, ulong newcount */
+         evh__HG_PTHREAD_BARRIER_RESIZE_PRE ( tid, (void*)args[1],
+                                              args[2] );
          break;
 
       case _VG_USERREQ__HG_PTHREAD_BARRIER_WAIT_PRE:
@@ -4583,7 +4820,7 @@ static void hg_pre_clo_init ( void )
    VG_(details_version)         (NULL);
    VG_(details_description)     ("a thread error detector");
    VG_(details_copyright_author)(
-      "Copyright (C) 2007-2009, and GNU GPL'd, by OpenWorks LLP et al.");
+      "Copyright (C) 2007-2010, and GNU GPL'd, by OpenWorks LLP et al.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 200 );
 
@@ -4636,7 +4873,7 @@ static void hg_pre_clo_init ( void )
    VG_(track_new_mem_stack_signal)( evh__new_mem_w_tid );
    VG_(track_new_mem_brk)         ( evh__new_mem_w_tid );
    VG_(track_new_mem_mmap)        ( evh__new_mem_w_perms );
-   VG_(track_new_mem_stack)       ( evh__new_mem );
+   VG_(track_new_mem_stack)       ( evh__new_mem_stack );
 
    // FIXME: surely this isn't thread-aware
    VG_(track_copy_mem_remap)      ( evh__copy_mem );

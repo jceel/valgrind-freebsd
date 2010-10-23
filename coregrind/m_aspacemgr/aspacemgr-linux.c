@@ -10,7 +10,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -40,6 +40,7 @@
    ************************************************************* */
 
 #include "priv_aspacemgr.h"
+#include "config.h"
 
 
 /* Note: many of the exported functions implemented below are
@@ -336,6 +337,22 @@ static void parse_procselfmaps (
                               const UChar* filename ),
       void (*record_gap)( Addr addr, SizeT len )
    );
+
+/* ----- Hacks to do with the "commpage" on arm-linux ----- */
+/* Not that I have anything against the commpage per se.  It's just
+   that it's not listed in /proc/self/maps, which is a royal PITA --
+   we have to fake it up, in parse_procselfmaps.
+
+   But note also bug 254556 comment #2: this is now fixed in newer
+   kernels -- it is listed as a "[vectors]" entry.  Presumably the
+   fake entry made here duplicates the [vectors] entry, and so, if at
+   some point in the future, we can stop supporting buggy kernels,
+   then this kludge can be removed entirely, since the procmap parser
+   below will read that entry in the normal way. */
+#if defined(VGP_arm_linux)
+#  define ARM_LINUX_FAKE_COMMPAGE_START 0xFFFF0000
+#  define ARM_LINUX_FAKE_COMMPAGE_END1  0xFFFF1000
+#endif
 
 
 /*-----------------------------------------------------------------*/
@@ -1539,11 +1556,27 @@ static void read_maps_callback ( Addr addr, SizeT len, UInt prot,
    seg.kind = SkAnonV;
    if (dev != 0 && ino != 0) 
       seg.kind = SkFileV;
-#if defined(VGO_darwin)
+
+#  if defined(VGO_darwin)
    // GrP fixme no dev/ino on darwin
    if (offset != 0) 
-       seg.kind = SkFileV;
-#endif
+      seg.kind = SkFileV;
+#  endif // defined(VGO_darwin)
+
+#  if defined(VGP_arm_linux)
+   /* The standard handling of entries read from /proc/self/maps will
+      cause the faked up commpage segment to have type SkAnonV, which
+      is a problem because it contains code we want the client to
+      execute, and so later m_translate will segfault the client when
+      it tries to go in there.  Hence change the ownership of it here
+      to the client (SkAnonC).  The least-worst kludge I could think
+      of. */
+   if (addr == ARM_LINUX_FAKE_COMMPAGE_START
+       && addr + len == ARM_LINUX_FAKE_COMMPAGE_END1
+       && seg.kind == SkAnonV)
+      seg.kind = SkAnonC;
+#  endif // defined(VGP_arm_linux)
+
    if (filename)
       seg.fnIdx = allocate_segname( filename );
 
@@ -1681,6 +1714,15 @@ Addr VG_(am_startup) ( Addr sp_at_startup )
 
    VG_(debugLog)(2, "aspacem", "Reading /proc/self/maps\n");
    parse_procselfmaps( read_maps_callback, NULL );
+   /* NB: on arm-linux, parse_procselfmaps automagically kludges up
+      (iow, hands to its callbacks) a description of the ARM Commpage,
+      since that's not listed in /proc/self/maps (kernel bug IMO).  We
+      have to fake up its existence in parse_procselfmaps and not
+      merely add it here as an extra segment, because doing the latter
+      causes sync checking to fail: we see we have an extra segment in
+      the segments array, which isn't listed in /proc/self/maps.
+      Hence we must make it appear that /proc/self/maps contained this
+      segment all along.  Sigh. */
 
    VG_(am_show_nsegments)(2, "With contents of /proc/self/maps");
 
@@ -2986,7 +3028,7 @@ Bool VG_(am_relocate_nooverlap_client)( /*OUT*/Bool* need_discard,
 #endif // HAVE_MREMAP
 
 
-#if HAVE_PROC
+#if defined(VGO_linux)
 
 /*-----------------------------------------------------------------*/
 /*---                                                           ---*/
@@ -2996,6 +3038,8 @@ Bool VG_(am_relocate_nooverlap_client)( /*OUT*/Bool* need_discard,
 /*--- is parse_procselfmaps.                                    ---*/
 /*---                                                           ---*/
 /*-----------------------------------------------------------------*/
+
+/*------BEGIN-procmaps-parser-for-Linux--------------------------*/
 
 /* Size of a smallish table used to read /proc/self/map entries. */
 #define M_PROCMAP_BUF 100000
@@ -3281,9 +3325,36 @@ static void parse_procselfmaps (
       gapStart = endPlusOne;
    }
 
+#  if defined(VGP_arm_linux)
+   /* ARM puts code at the end of memory that contains processor
+      specific stuff (cmpxchg, getting the thread local storage, etc.)
+      This isn't specified in /proc/self/maps, so do it here.  This
+      kludgery causes the view of memory, as presented to
+      record_gap/record_mapping, to actually reflect reality.  IMO
+      (JRS, 2010-Jan-03) the fact that /proc/.../maps does not list
+      the commpage should be regarded as a bug in the kernel. */
+   { const Addr commpage_start = ARM_LINUX_FAKE_COMMPAGE_START;
+     const Addr commpage_end1  = ARM_LINUX_FAKE_COMMPAGE_END1;
+     if (gapStart < commpage_start) {
+        if (record_gap)
+           (*record_gap)( gapStart, commpage_start - gapStart );
+        if (record_mapping)
+           (*record_mapping)( commpage_start, commpage_end1 - commpage_start,
+                              VKI_PROT_READ|VKI_PROT_EXEC,
+                              0/*dev*/, 0/*ino*/, 0/*foffset*/,
+                              NULL);
+        gapStart = commpage_end1;
+     }
+   }
+#  endif
+
    if (record_gap && gapStart < Addr_MAX)
       (*record_gap) ( gapStart, Addr_MAX - gapStart + 1 );
 }
+
+/*------END-procmaps-parser-for-Linux----------------------------*/
+
+/*------BEGIN-procmaps-parser-for-Darwin-------------------------*/
 
 #elif defined(VGO_darwin)
 #include <mach/mach.h>
@@ -3349,10 +3420,11 @@ static void parse_procselfmaps (
       (*record_gap)(last, (Addr)-1 - last);
 }
 
-Bool        css_overflowed;
-ChangedSeg* css_local;
-Int         css_size_local;
-Int         css_used_local;
+// Urr.  So much for thread safety.
+static Bool        css_overflowed;
+static ChangedSeg* css_local;
+static Int         css_size_local;
+static Int         css_used_local;
 
 static void add_mapping_callback(Addr addr, SizeT len, UInt prot, 
                                  ULong dev, ULong ino, Off64T offset, 
@@ -3414,8 +3486,8 @@ static void add_mapping_callback(Addr addr, SizeT len, UInt prot,
 #        endif
          if (seg_prot != prot) {
              if (VG_(clo_trace_syscalls)) 
-                 VG_(debugLog)(0,"aspacem","\nregion %p..%p permission "
-                                 "mismatch (kernel %x, V %x)", 
+                 VG_(debugLog)(0,"aspacem","region %p..%p permission "
+                                 "mismatch (kernel %x, V %x)\n", 
                                  (void*)nsegments[i].start,
                                  (void*)(nsegments[i].end+1), prot, seg_prot);
          }
@@ -3493,8 +3565,9 @@ Bool VG_(get_changed_segments)(
    return !css_overflowed;
 }
 
-#endif // HAVE_PROC
+#endif // defined(VGO_darwin)
 
+/*------END-procmaps-parser-for-Darwin---------------------------*/
 
 #endif // defined(VGO_linux) || defined(VGO_darwin)
 

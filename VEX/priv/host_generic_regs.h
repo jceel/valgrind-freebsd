@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (host_generic_regs.h) is                      ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                               host_generic_regs.h ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -74,9 +63,9 @@
    Note further that since the class field is never 1111b, no valid
    register can have the value INVALID_HREG.
 
-   There are currently 5 register classes:
+   There are currently 6 register classes:
 
-     int32 int64 float64 simd64 simd128
+     int32 int64 float32 float64 simd64 simd128
 */
 
 typedef UInt HReg;
@@ -87,23 +76,27 @@ typedef UInt HReg;
    available on any specific host.  For example on x86, the available
    classes are: Int32, Flt64, Vec128 only.
 
-   IMPORTANT NOTE: reg_alloc2.c needs how much space is needed to spill
-   each class of register.  It has the following knowledge hardwired in:
+   IMPORTANT NOTE: host_generic_reg_alloc2.c needs how much space is
+   needed to spill each class of register.  It allocates the following
+   amount of space:
 
-      HRcInt32     32 bits
+      HRcInt32     64 bits
       HRcInt64     64 bits
-      HRcFlt64     80 bits (on x86 these are spilled by fstpt/fldt)
+      HRcFlt32     64 bits
+      HRcFlt64     128 bits (on x86 these are spilled by fstpt/fldt and
+                             so won't fit in a 64-bit slot)
       HRcVec64     64 bits
       HRcVec128    128 bits
 
    If you add another regclass, you must remember to update
-   reg_alloc2.c accordingly.
+   host_generic_reg_alloc2.c accordingly.
 */
 typedef
    enum { 
       HRcINVALID=1,   /* NOT A VALID REGISTER CLASS */
-      HRcInt32=4,     /* 32-bit int */
-      HRcInt64=5,     /* 64-bit int */
+      HRcInt32=3,     /* 32-bit int */
+      HRcInt64=4,     /* 64-bit int */
+      HRcFlt32=5,     /* 32-bit float */
       HRcFlt64=6,     /* 64-bit float */
       HRcVec64=7,     /* 64-bit SIMD */
       HRcVec128=8     /* 128-bit SIMD */
@@ -265,10 +258,10 @@ HInstrArray* doRegisterAllocation (
    /* Apply a reg-reg mapping to an insn. */
    void (*mapRegs) (HRegRemap*, HInstr*, Bool),
 
-   /* Return an insn to spill/restore a real reg to a spill slot
+   /* Return insn(s) to spill/restore a real reg to a spill slot
       offset.  And optionally a function to do direct reloads. */
-   HInstr* (*genSpill) ( HReg, Int, Bool ),
-   HInstr* (*genReload) ( HReg, Int, Bool ),
+   void    (*genSpill) (  HInstr**, HInstr**, HReg, Int, Bool ),
+   void    (*genReload) ( HInstr**, HInstr**, HReg, Int, Bool ),
    HInstr* (*directReload) ( HInstr*, HReg, Short ),
    Int     guest_sizeB,
 

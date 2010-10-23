@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Nicholas Nethercote
+   Copyright (C) 2000-2010 Nicholas Nethercote
       njn@valgrind.org
 
    This program is free software; you can redistribute it and/or
@@ -261,6 +261,17 @@ static SysRes do_clone ( ThreadId ptid,
    /* inherit signal mask */
    ctst->sig_mask     = ptst->sig_mask;
    ctst->tmp_sig_mask = ptst->sig_mask;
+
+   /* Start the child with its threadgroup being the same as the
+      parent's.  This is so that any exit_group calls that happen
+      after the child is created but before it sets its
+      os_state.threadgroup field for real (in thread_wrapper in
+      syswrap-linux.c), really kill the new thread.  a.k.a this avoids
+      a race condition in which the thread is unkillable (via
+      exit_group) because its threadgroup is not set.  The race window
+      is probably only a few hundred or a few thousand cycles long.
+      See #226116. */
+   ctst->os_state.threadgroup = ptst->os_state.threadgroup;
 
    /* We don't really know where the client stack is, because its
       allocated by the client.  The best we can do is look at the
@@ -588,7 +599,7 @@ SysRes write_ldt ( ThreadId tid, void* ptr, UInt bytecount, Int oldmode )
 
    /* If this thread doesn't have an LDT, we'd better allocate it
       now. */
-   if (ldt == (HWord)NULL) {
+   if (ldt == NULL) {
       ldt = alloc_zeroed_x86_LDT();
       VG_(threads)[tid].arch.vex.guest_LDT = (HWord)ldt;
    }
@@ -1475,6 +1486,13 @@ PRE(sys_socketcall)
       break;
    }
 
+   case VKI_SYS_ACCEPT4: {
+      /*int accept(int s, struct sockaddr *add, int *addrlen, int flags)*/
+      PRE_MEM_READ( "socketcall.accept4(args)", ARG2, 4*sizeof(Addr) );
+      ML_(generic_PRE_sys_accept)( tid, ARG2_0, ARG2_1, ARG2_2 );
+      break;
+   }
+
    case VKI_SYS_SENDTO:
       /* int sendto(int s, const void *msg, int len, 
                     unsigned int flags, 
@@ -1620,7 +1638,9 @@ POST(sys_socketcall)
       break;
 
    case VKI_SYS_ACCEPT:
+   case VKI_SYS_ACCEPT4:
       /* int accept(int s, struct sockaddr *addr, int *addrlen); */
+      /* int accept4(int s, struct sockaddr *addr, int *addrlen, int flags); */
      r = ML_(generic_POST_sys_accept)( tid, VG_(mk_SysRes_Success)(RES), 
                                             ARG2_0, ARG2_1, ARG2_2 );
      SET_STATUS_from_SysRes(r);
@@ -1852,7 +1872,7 @@ POST(sys_syscall223)
 // arch/OS combination, eg. */* (generic), */Linux (Linux only), ?/?
 // (unknown).
 
-const SyscallTableEntry ML_(syscall_table)[] = {
+static SyscallTableEntry syscall_table[] = {
 //zz    //   (restart_syscall)                             // 0
    GENX_(__NR_exit,              sys_exit),           // 1
    GENX_(__NR_fork,              sys_fork),           // 2
@@ -2001,8 +2021,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 //zz    //   (__NR_setdomainname,     sys_setdomainname),  // 121 */*(?)
    GENXY(__NR_uname,             sys_newuname),       // 122
    PLAX_(__NR_modify_ldt,        sys_modify_ldt),     // 123
-//zz    LINXY(__NR_adjtimex,          sys_adjtimex),       // 124
-//zz 
+   LINXY(__NR_adjtimex,          sys_adjtimex),       // 124
+
    GENXY(__NR_mprotect,          sys_mprotect),       // 125
    LINXY(__NR_sigprocmask,       sys_sigprocmask),    // 126
 //zz    // Nb: create_module() was removed 2.4-->2.6
@@ -2048,7 +2068,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINX_(__NR_sched_get_priority_max, sys_sched_get_priority_max),// 159
 
    LINX_(__NR_sched_get_priority_min, sys_sched_get_priority_min),// 160
-//zz    //LINX?(__NR_sched_rr_get_interval,  sys_sched_rr_get_interval), // 161 */*
+   LINXY(__NR_sched_rr_get_interval,  sys_sched_rr_get_interval), // 161
    GENXY(__NR_nanosleep,         sys_nanosleep),      // 162
    GENX_(__NR_mremap,            sys_mremap),         // 163
    LINX_(__NR_setresuid,         sys_setresuid16),    // 164
@@ -2126,7 +2146,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    PLAXY(223,                    sys_syscall223),     // 223 // sys_bproc?
    LINX_(__NR_gettid,            sys_gettid),         // 224
 
-//zz    //   (__NR_readahead,         sys_readahead),      // 225 */(Linux?)
+   LINX_(__NR_readahead,         sys_readahead),      // 225 */Linux
    LINX_(__NR_setxattr,          sys_setxattr),       // 226
    LINX_(__NR_lsetxattr,         sys_lsetxattr),      // 227
    LINX_(__NR_fsetxattr,         sys_fsetxattr),      // 228
@@ -2231,20 +2251,20 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 //   LINX_(__NR_unshare,		 sys_unshare),          // 310
    LINX_(__NR_set_robust_list,	 sys_set_robust_list),  // 311
    LINXY(__NR_get_robust_list,	 sys_get_robust_list),  // 312
-//   LINX_(__NR_splice,            sys_ni_syscall),       // 313
+   LINX_(__NR_splice,            sys_splice),           // 313
    LINX_(__NR_sync_file_range,   sys_sync_file_range),  // 314
 
 //   LINX_(__NR_tee,               sys_ni_syscall),       // 315
 //   LINX_(__NR_vmsplice,          sys_ni_syscall),       // 316
 //   LINX_(__NR_move_pages,        sys_ni_syscall),       // 317
-//   LINX_(__NR_getcpu,            sys_ni_syscall),       // 318
+   LINXY(__NR_getcpu,            sys_getcpu),           // 318
    LINXY(__NR_epoll_pwait,       sys_epoll_pwait),      // 319
 
    LINX_(__NR_utimensat,         sys_utimensat),        // 320
    LINXY(__NR_signalfd,          sys_signalfd),         // 321
    LINXY(__NR_timerfd_create,    sys_timerfd_create),   // 322
    LINX_(__NR_eventfd,           sys_eventfd),          // 323
-   //LINX_(__NR_fallocate,         sys_fallocate),        // 324
+   LINX_(__NR_fallocate,         sys_fallocate),        // 324
 
    LINXY(__NR_timerfd_settime,   sys_timerfd_settime),  // 325
    LINXY(__NR_timerfd_gettime,   sys_timerfd_gettime),  // 326
@@ -2252,13 +2272,33 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    LINX_(__NR_eventfd2,          sys_eventfd2),         // 328
    LINXY(__NR_epoll_create1,     sys_epoll_create1),     // 329
 
-   //   (__NR_dup3,              sys_ni_syscall)        // 330
-   LINXY(__NR_pipe2,             sys_pipe2)             // 331
-   //   (__NR_inotify_init1,     sys_ni_syscall)        // 332
+   LINXY(__NR_dup3,              sys_dup3),             // 330
+   LINXY(__NR_pipe2,             sys_pipe2),            // 331
+   LINXY(__NR_inotify_init1,     sys_inotify_init1),    // 332
+   LINXY(__NR_preadv,            sys_preadv),           // 333
+   LINX_(__NR_pwritev,           sys_pwritev),          // 334
+
+   LINXY(__NR_rt_tgsigqueueinfo, sys_rt_tgsigqueueinfo),// 335
+   LINXY(__NR_perf_counter_open, sys_perf_counter_open) // 336
 };
 
-const UInt ML_(syscall_table_size) = 
-            sizeof(ML_(syscall_table)) / sizeof(ML_(syscall_table)[0]);
+SyscallTableEntry* ML_(get_linux_syscall_entry) ( UInt sysno )
+{
+   const UInt syscall_table_size
+      = sizeof(syscall_table) / sizeof(syscall_table[0]);
+
+   /* Is it in the contiguous initial section of the table? */
+   if (sysno < syscall_table_size) {
+      SyscallTableEntry* sys = &syscall_table[sysno];
+      if (sys->before == NULL)
+         return NULL; /* no entry */
+      else
+         return sys;
+   }
+
+   /* Can't find a wrapper */
+   return NULL;
+}
 
 #endif // defined(VGP_x86_linux)
 

@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -89,6 +89,7 @@
 #include "pub_core_debuginfo.h"     // VG_(di_notify_pdb_debuginfo)
 #include "priv_sema.h"
 #include "pub_core_scheduler.h"     // self
+#include "pub_core_redir.h"
 
 
 /* ---------------------------------------------------------------------
@@ -643,6 +644,16 @@ static void do_pre_run_checks ( ThreadState* tst )
    vg_assert(sz_spill == LibVEX_N_SPILL_BYTES);
    vg_assert(a_vex + 3 * sz_vex == a_spill);
 
+#  if defined(VGA_amd64)
+   /* x86/amd64 XMM regs must form an array, ie, have no
+      holes in between. */
+   vg_assert(
+      (offsetof(VexGuestAMD64State,guest_XMM16)
+       - offsetof(VexGuestAMD64State,guest_XMM0))
+      == (17/*#regs*/-1) * 16/*bytes per reg*/
+   );
+#  endif
+
 #  if defined(VGA_ppc32) || defined(VGA_ppc64)
    /* ppc guest_state vector regs must be 16 byte aligned for
       loads/stores.  This is important! */
@@ -653,7 +664,19 @@ static void do_pre_run_checks ( ThreadState* tst )
    vg_assert(VG_IS_16_ALIGNED(& tst->arch.vex.guest_VR1));
    vg_assert(VG_IS_16_ALIGNED(& tst->arch.vex_shadow1.guest_VR1));
    vg_assert(VG_IS_16_ALIGNED(& tst->arch.vex_shadow2.guest_VR1));
-#  endif   
+#  endif
+
+#  if defined(VGA_arm)
+   /* arm guest_state VFP regs must be 8 byte aligned for
+      loads/stores. */
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex.guest_D0));
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex_shadow1.guest_D0));
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex_shadow2.guest_D0));
+   /* be extra paranoid .. */
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex.guest_D1));
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex_shadow1.guest_D1));
+   vg_assert(VG_IS_8_ALIGNED(& tst->arch.vex_shadow2.guest_D1));
+#  endif
 }
 
 
@@ -839,7 +862,7 @@ static void handle_tt_miss ( ThreadId tid )
    /* Trivial event.  Miss in the fast-cache.  Do a full
       lookup for it. */
    found = VG_(search_transtab)( NULL, ip, True/*upd_fast_cache*/ );
-   if (!found) {
+   if (UNLIKELY(!found)) {
       /* Not found; we need to request a translation. */
       if (VG_(translate)( tid, ip, /*debug*/False, 0/*not verbose*/, 
                           bbs_done, True/*allow redirection*/ )) {
@@ -1194,6 +1217,12 @@ VgSchedReturnCode VG_(scheduler) ( ThreadId tid )
             be in on entry to Vex-generated code, and they should be
             unchanged on exit from it.  Failure of this assertion
             usually means a bug in Vex's code generation. */
+         //{ UInt xx;
+         //  __asm__ __volatile__ (
+         //     "\t.word 0xEEF12A10\n"  // fmrx r2,fpscr
+         //     "\tmov %0, r2" : "=r"(xx) : : "r2" );
+         //  VG_(printf)("QQQQ new fpscr = %08x\n", xx);
+         //}
          vg_assert2(0, "VG_(scheduler), phase 3: "
                        "run_innerloop detected host "
                        "state invariant failure", trc);
@@ -1278,6 +1307,9 @@ void VG_(nuke_all_threads_except) ( ThreadId me, VgSchedReturnCode src )
 #elif defined(VGA_ppc32) || defined(VGA_ppc64)
 #  define VG_CLREQ_ARGS       guest_GPR4
 #  define VG_CLREQ_RET        guest_GPR3
+#elif defined(VGA_arm)
+#  define VG_CLREQ_ARGS       guest_R4
+#  define VG_CLREQ_RET        guest_R3
 #else
 #  error Unknown arch
 #endif
@@ -1386,25 +1418,71 @@ void do_client_request ( ThreadId tid )
          break;
 
       case VG_USERREQ__PRINTF: {
+         /* JRS 2010-Jan-28: this is DEPRECATED; use the
+            _VALIST_BY_REF version instead */
+         if (sizeof(va_list) != sizeof(UWord))
+            goto va_list_casting_error_NORETURN;
+         union {
+            va_list vargs;
+            unsigned long uw;
+         } u;
+         u.uw = (unsigned long)arg[2];
          Int count = 
-            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], (void*)arg[2] );
-            VG_(message_flush)();
-            SET_CLREQ_RETVAL( tid, count );
-         break; }
-
-      case VG_USERREQ__INTERNAL_PRINTF: {
-         Int count = 
-            VG_(vmessage)( Vg_DebugMsg, (char *)arg[1], (void*)arg[2] );
-            VG_(message_flush)();
-            SET_CLREQ_RETVAL( tid, count );
-         break; }
+            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], u.vargs );
+         VG_(message_flush)();
+         SET_CLREQ_RETVAL( tid, count );
+         break;
+      }
 
       case VG_USERREQ__PRINTF_BACKTRACE: {
+         /* JRS 2010-Jan-28: this is DEPRECATED; use the
+            _VALIST_BY_REF version instead */
+         if (sizeof(va_list) != sizeof(UWord))
+            goto va_list_casting_error_NORETURN;
+         union {
+            va_list vargs;
+            unsigned long uw;
+         } u;
+         u.uw = (unsigned long)arg[2];
          Int count =
-            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], (void*)arg[2] );
-            VG_(message_flush)();
-            VG_(get_and_pp_StackTrace)( tid, VG_(clo_backtrace_size) );
-            SET_CLREQ_RETVAL( tid, count );
+            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], u.vargs );
+         VG_(message_flush)();
+         VG_(get_and_pp_StackTrace)( tid, VG_(clo_backtrace_size) );
+         SET_CLREQ_RETVAL( tid, count );
+         break;
+      }
+
+      case VG_USERREQ__PRINTF_VALIST_BY_REF: {
+         va_list* vargsp = (va_list*)arg[2];
+         Int count = 
+            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], *vargsp );
+         VG_(message_flush)();
+         SET_CLREQ_RETVAL( tid, count );
+         break;
+      }
+
+      case VG_USERREQ__PRINTF_BACKTRACE_VALIST_BY_REF: {
+         va_list* vargsp = (va_list*)arg[2];
+         Int count =
+            VG_(vmessage)( Vg_ClientMsg, (char *)arg[1], *vargsp );
+         VG_(message_flush)();
+         VG_(get_and_pp_StackTrace)( tid, VG_(clo_backtrace_size) );
+         SET_CLREQ_RETVAL( tid, count );
+         break;
+      }
+
+      case VG_USERREQ__INTERNAL_PRINTF_VALIST_BY_REF: {
+         va_list* vargsp = (va_list*)arg[2];
+         Int count = 
+            VG_(vmessage)( Vg_DebugMsg, (char *)arg[1], *vargsp );
+         VG_(message_flush)();
+         SET_CLREQ_RETVAL( tid, count );
+         break;
+      }
+
+      case VG_USERREQ__ADD_IFUNC_TARGET: {
+         VG_(redir_add_ifunc_target)( arg[1], arg[2] );
+         SET_CLREQ_RETVAL( tid, 0);
          break; }
 
       case VG_USERREQ__STACK_REGISTER: {
@@ -1468,6 +1546,35 @@ void do_client_request ( ThreadId tid )
          SET_CLREQ_RETVAL( tid, 0 );     /* return value is meaningless */
          break;
 
+      case VG_USERREQ__MAP_IP_TO_SRCLOC: {
+         Addr   ip    = arg[1];
+         UChar* buf64 = (UChar*)arg[2];
+
+         VG_(memset)(buf64, 0, 64);
+         UInt linenum = 0;
+         Bool ok = VG_(get_filename_linenum)(
+                      ip, &buf64[0], 50, NULL, 0, NULL, &linenum
+                   );
+         if (ok) {
+            /* Find the terminating zero in the first 50 bytes. */
+            UInt i;
+            for (i = 0; i < 50; i++) {
+               if (buf64[i] == 0)
+                  break;
+            }
+            /* We must find a zero somewhere in 0 .. 49.  Else
+               VG_(get_filename_linenum) is not properly zero
+               terminating. */
+            vg_assert(i < 50);
+            VG_(sprintf)(&buf64[i], ":%u", linenum);
+         } else {
+            buf64[0] = 0;
+         }
+
+         SET_CLREQ_RETVAL( tid, 0 ); /* return value is meaningless */
+         break;
+      }
+
       case VG_USERREQ__MALLOCLIKE_BLOCK:
       case VG_USERREQ__FREELIKE_BLOCK:
          // Ignore them if the addr is NULL;  otherwise pass onto the tool.
@@ -1510,6 +1617,32 @@ void do_client_request ( ThreadId tid )
          }
          break;
    }
+   return;
+
+   /*NOTREACHED*/
+  va_list_casting_error_NORETURN:
+   VG_(umsg)(
+      "Valgrind: fatal error - cannot continue: use of the deprecated\n"
+      "client requests VG_USERREQ__PRINTF or VG_USERREQ__PRINTF_BACKTRACE\n"
+      "on a platform where they cannot be supported.  Please use the\n"
+      "equivalent _VALIST_BY_REF versions instead.\n"
+      "\n"
+      "This is a binary-incompatible change in Valgrind's client request\n"
+      "mechanism.  It is unfortunate, but difficult to avoid.  End-users\n"
+      "are expected to almost never see this message.  The only case in\n"
+      "which you might see this message is if your code uses the macros\n"
+      "VALGRIND_PRINTF or VALGRIND_PRINTF_BACKTRACE.  If so, you will need\n"
+      "to recompile such code, using the header files from this version of\n"
+      "Valgrind, and not any previous version.\n"
+      "\n"
+      "If you see this mesage in any other circumstances, it is probably\n"
+      "a bug in Valgrind.  In this case, please file a bug report at\n"
+      "\n"
+      "   http://www.valgrind.org/support/bug_reports.html\n"
+      "\n"
+      "Will now abort.\n"
+   );
+   vg_assert(0);
 }
 
 
@@ -1620,9 +1753,11 @@ void VG_(sanity_check_general) ( Bool force_expensive )
          stack 
             = (VgStack*)
               VG_(get_ThreadState)(tid)->os_state.valgrind_stack_base;
+         SizeT limit
+            = 4096; // Let's say.  Checking more causes lots of L2 misses.
 	 remains 
-            = VG_(am_get_VgStack_unused_szB)(stack);
-	 if (remains < VKI_PAGE_SIZE)
+            = VG_(am_get_VgStack_unused_szB)(stack, limit);
+	 if (remains < limit)
 	    VG_(message)(Vg_DebugMsg, 
                          "WARNING: Thread %d is within %ld bytes "
                          "of running out of stack!\n",

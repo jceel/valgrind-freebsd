@@ -13,7 +13,8 @@ TOOLS =		memcheck \
 		drd
 
 EXP_TOOLS = 	exp-ptrcheck \
-		exp-bbv
+		exp-bbv \
+		exp-dhat
 
 # DDD: once all tools work on Darwin, TEST_TOOLS and TEST_EXP_TOOLS can be
 # replaced with TOOLS and EXP_TOOLS.
@@ -48,7 +49,8 @@ SUPP_FILES = \
 	glibc-2.2-LinuxThreads-helgrind.supp \
 	glibc-2.X-drd.supp \
 	exp-ptrcheck.supp \
-	darwin9.supp darwin9-drd.supp
+	darwin9.supp darwin9-drd.supp \
+	darwin10.supp darwin10-drd.supp
 DEFAULT_SUPP_FILES = @DEFAULT_SUPP@
 
 # We include all the base .supp files in the distribution, but not

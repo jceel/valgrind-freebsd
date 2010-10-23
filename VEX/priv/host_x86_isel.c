@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (host_x86_isel.c) is                          ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                                   host_x86_isel.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -763,8 +752,6 @@ static HReg iselIntExpr_R_wrk ( ISelEnv* env, IRExpr* e )
       /* We can't handle big-endian loads, nor load-linked. */
       if (e->Iex.Load.end != Iend_LE)
          goto irreducible;
-      if (e->Iex.Load.isLL)
-         goto irreducible;
 
       if (ty == Ity_I32) {
          addInstr(env, X86Instr_Alu32R(Xalu_MOV,
@@ -1000,8 +987,9 @@ static HReg iselIntExpr_R_wrk ( ISelEnv* env, IRExpr* e )
          return dst;
       }
 
-      if (e->Iex.Binop.op == Iop_F64toI32 || e->Iex.Binop.op == Iop_F64toI16) {
-         Int  sz  = e->Iex.Binop.op == Iop_F64toI16 ? 2 : 4;
+      if (e->Iex.Binop.op == Iop_F64toI32S
+          || e->Iex.Binop.op == Iop_F64toI16S) {
+         Int  sz  = e->Iex.Binop.op == Iop_F64toI16S ? 2 : 4;
          HReg rf  = iselDblExpr(env, e->Iex.Binop.arg2);
          HReg dst = newVRegI(env);
 
@@ -1069,7 +1057,7 @@ static HReg iselIntExpr_R_wrk ( ISelEnv* env, IRExpr* e )
          DECLARE_PATTERN(p_LDle8_then_8Uto32);
          DEFINE_PATTERN(p_LDle8_then_8Uto32,
                         unop(Iop_8Uto32,
-                             IRExpr_Load(False,Iend_LE,Ity_I8,bind(0))) );
+                             IRExpr_Load(Iend_LE,Ity_I8,bind(0))) );
          if (matchIRExpr(&mi,p_LDle8_then_8Uto32,e)) {
             HReg dst = newVRegI(env);
             X86AMode* amode = iselIntExpr_AMode ( env, mi.bindee[0] );
@@ -1083,7 +1071,7 @@ static HReg iselIntExpr_R_wrk ( ISelEnv* env, IRExpr* e )
          DECLARE_PATTERN(p_LDle8_then_8Sto32);
          DEFINE_PATTERN(p_LDle8_then_8Sto32,
                         unop(Iop_8Sto32,
-                             IRExpr_Load(False,Iend_LE,Ity_I8,bind(0))) );
+                             IRExpr_Load(Iend_LE,Ity_I8,bind(0))) );
          if (matchIRExpr(&mi,p_LDle8_then_8Sto32,e)) {
             HReg dst = newVRegI(env);
             X86AMode* amode = iselIntExpr_AMode ( env, mi.bindee[0] );
@@ -1097,7 +1085,7 @@ static HReg iselIntExpr_R_wrk ( ISelEnv* env, IRExpr* e )
          DECLARE_PATTERN(p_LDle16_then_16Uto32);
          DEFINE_PATTERN(p_LDle16_then_16Uto32,
                         unop(Iop_16Uto32,
-                             IRExpr_Load(False,Iend_LE,Ity_I16,bind(0))) );
+                             IRExpr_Load(Iend_LE,Ity_I16,bind(0))) );
          if (matchIRExpr(&mi,p_LDle16_then_16Uto32,e)) {
             HReg dst = newVRegI(env);
             X86AMode* amode = iselIntExpr_AMode ( env, mi.bindee[0] );
@@ -1536,7 +1524,7 @@ static X86RMI* iselIntExpr_RMI_wrk ( ISelEnv* env, IRExpr* e )
 
    /* special case: 32-bit load from memory */
    if (e->tag == Iex_Load && ty == Ity_I32 
-       && e->Iex.Load.end == Iend_LE && !e->Iex.Load.isLL) {
+       && e->Iex.Load.end == Iend_LE) {
       X86AMode* am = iselIntExpr_AMode(env, e->Iex.Load.addr);
       return X86RMI_Mem(am);
    }
@@ -1955,7 +1943,7 @@ static void iselInt64Expr_wrk ( HReg* rHi, HReg* rLo, ISelEnv* env, IRExpr* e )
    }
 
    /* 64-bit load */
-   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE && !e->Iex.Load.isLL) {
+   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE) {
       HReg     tLo, tHi;
       X86AMode *am0, *am4;
       vassert(e->Iex.Load.ty == Ity_I64);
@@ -2262,7 +2250,7 @@ static void iselInt64Expr_wrk ( HReg* rHi, HReg* rLo, ISelEnv* env, IRExpr* e )
          /* Sigh, this is an almost exact copy of the F64 -> I32/I16
             case.  Unfortunately I see no easy way to avoid the
             duplication. */
-         case Iop_F64toI64: {
+         case Iop_F64toI64S: {
             HReg rf  = iselDblExpr(env, e->Iex.Binop.arg2);
             HReg tLo = newVRegI(env);
             HReg tHi = newVRegI(env);
@@ -2494,6 +2482,20 @@ static void iselInt64Expr_wrk ( HReg* rHi, HReg* rLo, ISelEnv* env, IRExpr* e )
             HReg tHi = newVRegI(env);
             HReg src = iselIntExpr_R(env, e->Iex.Unop.arg);
             addInstr(env, mk_iMOVsd_RR(src,tLo));
+            addInstr(env, X86Instr_Alu32R(Xalu_MOV, X86RMI_Imm(0), tHi));
+            *rHi = tHi;
+            *rLo = tLo;
+            return;
+         }
+
+         /* 16Uto64(e) */
+         case Iop_16Uto64: {
+            HReg tLo = newVRegI(env);
+            HReg tHi = newVRegI(env);
+            HReg src = iselIntExpr_R(env, e->Iex.Unop.arg);
+            addInstr(env, mk_iMOVsd_RR(src,tLo));
+            addInstr(env, X86Instr_Alu32R(Xalu_AND,
+                                          X86RMI_Imm(0xFFFF), tLo));
             addInstr(env, X86Instr_Alu32R(Xalu_MOV, X86RMI_Imm(0), tHi));
             *rHi = tHi;
             *rLo = tLo;
@@ -2743,7 +2745,7 @@ static HReg iselFltExpr_wrk ( ISelEnv* env, IRExpr* e )
       return lookupIRTemp(env, e->Iex.RdTmp.tmp);
    }
 
-   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE && !e->Iex.Load.isLL) {
+   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE) {
       X86AMode* am;
       HReg res = newVRegF(env);
       vassert(e->Iex.Load.ty == Ity_F32);
@@ -2785,6 +2787,25 @@ static HReg iselFltExpr_wrk ( ISelEnv* env, IRExpr* e )
                        True/*load*/, 4, dst, 
                        X86AMode_IR(0, hregX86_ESP())));
       add_to_esp(env, 4);
+      return dst;
+   }
+
+   if (e->tag == Iex_Binop && e->Iex.Binop.op == Iop_RoundF32toInt) {
+      HReg rf  = iselFltExpr(env, e->Iex.Binop.arg2);
+      HReg dst = newVRegF(env);
+
+      /* rf now holds the value to be rounded.  The first thing to do
+         is set the FPU's rounding mode accordingly. */
+
+      /* Set host rounding mode */
+      set_FPU_rounding_mode( env, e->Iex.Binop.arg1 );
+
+      /* grndint %rf, %dst */
+      addInstr(env, X86Instr_FpUnary(Xfp_ROUND, rf, dst));
+
+      /* Restore default FPU rounding. */
+      set_FPU_rounding_default( env );
+
       return dst;
    }
 
@@ -2867,7 +2888,7 @@ static HReg iselDblExpr_wrk ( ISelEnv* env, IRExpr* e )
       return freg;
    }
 
-   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE && !e->Iex.Load.isLL) {
+   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE) {
       X86AMode* am;
       HReg res = newVRegF(env);
       vassert(e->Iex.Load.ty == Ity_F64);
@@ -2942,7 +2963,7 @@ static HReg iselDblExpr_wrk ( ISelEnv* env, IRExpr* e )
       return dst;
    }
 
-   if (e->tag == Iex_Binop && e->Iex.Binop.op == Iop_I64toF64) {
+   if (e->tag == Iex_Binop && e->Iex.Binop.op == Iop_I64StoF64) {
       HReg dst = newVRegF(env);
       HReg rHi,rLo;
       iselInt64Expr( &rHi, &rLo, env, e->Iex.Binop.arg2);
@@ -3005,7 +3026,7 @@ static HReg iselDblExpr_wrk ( ISelEnv* env, IRExpr* e )
 
    if (e->tag == Iex_Unop) {
       switch (e->Iex.Unop.op) {
-         case Iop_I32toF64: {
+         case Iop_I32StoF64: {
             HReg dst = newVRegF(env);
             HReg ri  = iselIntExpr_R(env, e->Iex.Unop.arg);
             addInstr(env, X86Instr_Push(X86RMI_Reg(ri)));
@@ -3119,7 +3140,7 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       return dst;
    }
 
-   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE && !e->Iex.Load.isLL) {
+   if (e->tag == Iex_Load && e->Iex.Load.end == Iend_LE) {
       HReg      dst = newVRegV(env);
       X86AMode* am  = iselIntExpr_AMode(env, e->Iex.Load.addr);
       addInstr(env, X86Instr_SseLdSt( True/*load*/, dst, am ));
@@ -3140,7 +3161,7 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       DECLARE_PATTERN(p_zwiden_load64);
       DEFINE_PATTERN(p_zwiden_load64,
                      unop(Iop_64UtoV128, 
-                          IRExpr_Load(False,Iend_LE,Ity_I64,bind(0))));
+                          IRExpr_Load(Iend_LE,Ity_I64,bind(0))));
       if (matchIRExpr(&mi, p_zwiden_load64, e)) {
          X86AMode* am = iselIntExpr_AMode(env, mi.bindee[0]);
          HReg dst = newVRegV(env);
@@ -3608,9 +3629,8 @@ static void iselStmt ( ISelEnv* env, IRStmt* stmt )
       IRType    tya   = typeOfIRExpr(env->type_env, stmt->Ist.Store.addr);
       IRType    tyd   = typeOfIRExpr(env->type_env, stmt->Ist.Store.data);
       IREndness end   = stmt->Ist.Store.end;
-      IRTemp    resSC = stmt->Ist.Store.resSC;
 
-      if (tya != Ity_I32 || end != Iend_LE || resSC != IRTemp_INVALID) 
+      if (tya != Ity_I32 || end != Iend_LE) 
          goto stmt_fail;
 
       if (tyd == Ity_I32) {
@@ -3994,9 +4014,11 @@ HInstrArray* iselSB_X86 ( IRSB* bb, VexArch      arch_host,
 
    /* sanity ... */
    vassert(arch_host == VexArchX86);
-   vassert(0 == (hwcaps_host & ~(VEX_HWCAPS_X86_SSE1
-                                 |VEX_HWCAPS_X86_SSE2
-                                 |VEX_HWCAPS_X86_SSE3)));
+   vassert(0 == (hwcaps_host
+                 & ~(VEX_HWCAPS_X86_SSE1
+                     | VEX_HWCAPS_X86_SSE2
+                     | VEX_HWCAPS_X86_SSE3
+                     | VEX_HWCAPS_X86_LZCNT)));
 
    /* Make up an initial environment to use. */
    env = LibVEX_Alloc(sizeof(ISelEnv));

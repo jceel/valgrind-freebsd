@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2005-2009 Julian Seward
+   Copyright (C) 2005-2010 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -67,6 +67,12 @@ extern unsigned long VKI_PAGE_SHIFT;
 extern unsigned long VKI_PAGE_SIZE;
 #define VKI_MAX_PAGE_SHIFT	16
 #define VKI_MAX_PAGE_SIZE	(1UL << VKI_MAX_PAGE_SHIFT)
+
+//----------------------------------------------------------------------
+// From linux-2.6.35.4/arch/powerpc/include/asm/shmparam.h
+//----------------------------------------------------------------------
+
+#define VKI_SHMLBA  VKI_PAGE_SIZE
 
 //----------------------------------------------------------------------
 // From linux-2.6.9/include/asm-ppc/signal.h
@@ -514,13 +520,6 @@ struct vki_termios {
          ((type) << _VKI_IOC_TYPESHIFT) | \
          ((nr)   << _VKI_IOC_NRSHIFT) | \
          ((size) << _VKI_IOC_SIZESHIFT))
-
-/* provoke compile error for invalid uses of size argument */
-extern unsigned int __VKI_invalid_size_argument_for_IOC;
-#define _VKI_IOC_TYPECHECK(t) \
-        ((sizeof(t) == sizeof(t[1]) && \
-          sizeof(t) < (1 << _VKI_IOC_SIZEBITS)) ? \
-          sizeof(t) : __VKI_invalid_size_argument_for_IOC)
 
 /* used to create numbers */
 #define _VKI_IO(type,nr)			_VKI_IOC(_VKI_IOC_NONE,(type),(nr),0)

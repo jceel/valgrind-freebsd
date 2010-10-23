@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -32,6 +32,16 @@
    and so it doesn't have to conform to Valgrind's arcane rules on
    no-glibc-usage etc. */
 
+/* Include valgrind headers before system headers to avoid problems
+   with the system headers #defining things which are used as names
+   of structure members in vki headers. */
+
+#include "pub_core_debuglog.h"
+#include "pub_core_vki.h"       // Avoids warnings from
+                                // pub_core_libcfile.h
+#include "pub_core_libcproc.h"  // For VALGRIND_LIB, VALGRIND_LAUNCHER
+#include "pub_core_ume.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <elf.h>
@@ -44,12 +54,6 @@
 #include <sys/mman.h>
 #include <sys/user.h>
 #include <unistd.h>
-
-#include "pub_core_debuglog.h"
-#include "pub_core_vki.h"       // Avoids warnings from
-                                // pub_core_libcfile.h
-#include "pub_core_libcproc.h"  // For VALGRIND_LIB, VALGRIND_LAUNCHER
-#include "pub_core_ume.h"
 
 
 
@@ -116,18 +120,27 @@ static const char *select_platform(const char *clientname)
    ssize_t n_bytes;
    const char *platform = NULL;
 
+   VG_(debugLog)(2, "launcher", "selecting platform for '%s'\n", clientname);
+
    if (strchr(clientname, '/') == NULL)
       clientname = find_client(clientname);
+
+   VG_(debugLog)(2, "launcher", "selecting platform for '%s'\n", clientname);
 
    if ((fd = open(clientname, O_RDONLY)) < 0)
       return NULL;
    //   barf("open(%s): %s", clientname, strerror(errno));
+
+   VG_(debugLog)(2, "launcher", "opened '%s'\n", clientname);
 
    n_bytes = read(fd, header, sizeof(header));
    close(fd);
    if (n_bytes < 2) {
       return NULL;
    }
+
+   VG_(debugLog)(2, "launcher", "read %ld bytes from '%s'\n",
+                    (long int)n_bytes, clientname);
 
    if (header[0] == '#' && header[1] == '!') {
       int i = 2;
@@ -163,6 +176,12 @@ static const char *select_platform(const char *clientname)
                  ehdr->e_ident[EI_OSABI] == ELFOSABI_LINUX)) {
                platform = "x86-linux";
             }
+            else 
+            if (ehdr->e_machine == EM_ARM &&
+                (ehdr->e_ident[EI_OSABI] == ELFOSABI_SYSV ||
+                 ehdr->e_ident[EI_OSABI] == ELFOSABI_LINUX)) {
+               platform = "arm-linux";
+            }
          }
          else if (header[EI_DATA] == ELFDATA2MSB) {
             if (ehdr->e_machine == EM_PPC &&
@@ -171,6 +190,7 @@ static const char *select_platform(const char *clientname)
                platform = "ppc32-linux";
             }
          }
+
       } else if (n_bytes >= sizeof(Elf64_Ehdr) && header[EI_CLASS] == ELFCLASS64) {
          const Elf64_Ehdr *ehdr = (Elf64_Ehdr *)header;
 
@@ -189,6 +209,9 @@ static const char *select_platform(const char *clientname)
          }
       }
    }
+
+   VG_(debugLog)(2, "launcher", "selected platform '%s'\n",
+                 platform ? platform : "unknown");
 
    return platform;
 }
@@ -254,7 +277,8 @@ int main(int argc, char** argv, char** envp)
    if ((0==strcmp(VG_PLATFORM,"x86-linux"))   ||
        (0==strcmp(VG_PLATFORM,"amd64-linux")) ||
        (0==strcmp(VG_PLATFORM,"ppc32-linux")) ||
-       (0==strcmp(VG_PLATFORM,"ppc64-linux")))
+       (0==strcmp(VG_PLATFORM,"ppc64-linux")) ||
+       (0==strcmp(VG_PLATFORM,"arm-linux")))
       default_platform = VG_PLATFORM;
    else
       barf("Unknown VG_PLATFORM '%s'", VG_PLATFORM);

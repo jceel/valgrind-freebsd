@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -47,11 +47,11 @@
 #include "pub_core_debuginfo.h"  // Needed for pub_core_redir.h
 #include "pub_core_redir.h"      // For VG_NOTIFY_ON_LOAD
 
+#if defined(VGO_linux) || defined(VGO_aix5)
+
 /* ---------------------------------------------------------------------
    Hook for running __libc_freeres once the program exits.
    ------------------------------------------------------------------ */
-
-#if defined(VGO_linux) || defined(VGO_aix5)
 
 void VG_NOTIFY_ON_LOAD(freeres)( void );
 void VG_NOTIFY_ON_LOAD(freeres)( void )
@@ -65,10 +65,37 @@ void VG_NOTIFY_ON_LOAD(freeres)( void )
                               VG_USERREQ__LIBC_FREERES_DONE, 
                               0, 0, 0, 0, 0);
    /*NOTREACHED*/
-   *(int *)0 = 'x';
+   *(volatile int *)0 = 'x';
+}
+
+/* ---------------------------------------------------------------------
+   Wrapper for indirect functions which need to be redirected.
+   ------------------------------------------------------------------ */
+
+void * VG_NOTIFY_ON_LOAD(ifunc_wrapper) (void);
+void * VG_NOTIFY_ON_LOAD(ifunc_wrapper) (void)
+{
+    OrigFn fn;
+    Addr result = 0;
+    int res;
+
+    /* Call the original indirect function and get it's result */
+    VALGRIND_GET_ORIG_FN(fn);
+    CALL_FN_W_v(result, fn);
+
+    /* Ask the valgrind core running on the real CPU (as opposed to this
+       code which runs on the emulated CPU) to update the redirection that
+       led to this function. This client request eventually gives control to
+       the function VG_(redir_add_ifunc_target) in m_redir.c  */
+    VALGRIND_DO_CLIENT_REQUEST(res, 0,
+                               VG_USERREQ__ADD_IFUNC_TARGET,
+                               fn.nraddr, result, 0, 0, 0);
+    return (void*)result;
 }
 
 #elif defined(VGO_darwin)
+
+#include "config.h" /* VERSION */
 
 /* ---------------------------------------------------------------------
    Darwin crash log hints
@@ -124,17 +151,18 @@ static void vg_cleanup_env(void)
    Darwin arc4random (rdar://6166275)
    ------------------------------------------------------------------ */
 
-#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 int VG_REPLACE_FUNCTION_ZU(libSystemZdZaZddylib, arc4random)(void);
 int VG_REPLACE_FUNCTION_ZU(libSystemZdZaZddylib, arc4random)(void)
 {
-    static FILE *rnd = 0;
+    static int rnd = -1;
     int result;
 
-    if (!rnd) rnd = fopen("/dev/random", "r");
-    
-    fread(&result, sizeof(result), 1, rnd);
+    if (rnd < 0) rnd = open("/dev/random", O_RDONLY);
+
+    read(rnd, &result, sizeof(result));
     return result;
 }
 

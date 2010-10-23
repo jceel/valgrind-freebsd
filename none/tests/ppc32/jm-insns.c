@@ -167,15 +167,32 @@ case I chased).
 
 #include <stdint.h>
 #include "tests/sys_mman.h"
+#include "tests/malloc.h"       // memalign16
+
+#define STATIC_ASSERT(e) sizeof(struct { int:-!(e); })
 
 /* Something of the same size as void*, so can be safely be coerced
-   to/from a pointer type. Also same size as the host's gp registers. */
+ * to/from a pointer type. Also same size as the host's gp registers.
+ * According to the AltiVec section of the GCC manual, the syntax does
+ * not allow the use of a typedef name as a type specifier in conjunction
+ * with the vector keyword, so typedefs uint[32|64]_t are #undef'ed here
+ * and redefined using #define.
+ */
+#undef uint32_t
+#undef uint64_t
+#define uint32_t unsigned int
+#define uint64_t unsigned long long
+
 #ifndef __powerpc64__
 typedef uint32_t  HWord_t;
 #else
 typedef uint64_t  HWord_t;
-#endif // #ifndef __powerpc64__
+#endif /* __powerpc64__ */
 
+enum {
+    compile_time_test1 = STATIC_ASSERT(sizeof(uint32_t) == 4),
+    compile_time_test2 = STATIC_ASSERT(sizeof(uint64_t) == 8),
+};
 
 #define ALLCR "cr0","cr1","cr2","cr3","cr4","cr5","cr6","cr7"
 
@@ -210,17 +227,17 @@ typedef uint64_t  HWord_t;
 
 
 /* XXXX these must all be callee-save regs! */
-register double f14 __asm__ ("f14");
-register double f15 __asm__ ("f15");
-register double f16 __asm__ ("f16");
-register double f17 __asm__ ("f17");
+register double f14 __asm__ ("fr14");
+register double f15 __asm__ ("fr15");
+register double f16 __asm__ ("fr16");
+register double f17 __asm__ ("fr17");
 register HWord_t r14 __asm__ ("r14");
 register HWord_t r15 __asm__ ("r15");
 register HWord_t r16 __asm__ ("r16");
 register HWord_t r17 __asm__ ("r17");
 
-#include "config.h"
-#if defined (HAVE_ALTIVEC_H)
+#include "config.h"         // HAS_ALTIVEC
+#if defined (HAS_ALTIVEC)
 #   include <altivec.h>
 #endif
 #include <assert.h>

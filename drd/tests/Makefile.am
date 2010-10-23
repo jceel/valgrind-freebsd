@@ -11,9 +11,16 @@ dist_noinst_SCRIPTS =		    \
 	supported_sem_init
 
 noinst_HEADERS =                                    \
-	tsan_thread_wrappers_pthread.h
+	tsan_thread_wrappers_pthread.h		    \
+	unified_annotations.h
 
 EXTRA_DIST =                                        \
+	annotate_barrier.stderr.exp		    \
+	annotate_barrier.vgtest			    \
+	annotate_hb_err.stderr.exp		    \
+	annotate_hb_err.vgtest			    \
+	annotate_hb_race.stderr.exp		    \
+	annotate_hb_race.vgtest			    \
 	annotate_hbefore.stderr.exp		    \
 	annotate_hbefore.vgtest			    \
 	annotate_order_1.stderr.exp		    \
@@ -24,6 +31,8 @@ EXTRA_DIST =                                        \
 	annotate_order_3.vgtest			    \
 	annotate_publish_hg.stderr.exp		    \
 	annotate_publish_hg.vgtest		    \
+	annotate_smart_pointer.stderr.exp	    \
+	annotate_smart_pointer.vgtest		    \
 	annotate_spinlock.stderr.exp		    \
 	annotate_spinlock.vgtest		    \
 	annotate_rwlock.stderr.exp		    \
@@ -42,6 +51,8 @@ EXTRA_DIST =                                        \
 	annotate_ignore_write2.vgtest		    \
 	annotate_trace_memory.stderr.exp	    \
 	annotate_trace_memory.vgtest		    \
+	annotate_static.stderr.exp	            \
+	annotate_static.vgtest		            \
 	atomic_var.stderr.exp			    \
 	atomic_var.vgtest			    \
 	bar_bad.stderr.exp			    \
@@ -51,6 +62,8 @@ EXTRA_DIST =                                        \
 	bar_trivial.vgtest			    \
 	boost_thread.stderr.exp			    \
 	boost_thread.vgtest			    \
+	bug-235681.stderr.exp			    \
+	bug-235681.vgtest			    \
 	circular_buffer.stderr.exp		    \
 	circular_buffer.vgtest			    \
 	custom_alloc.stderr.exp			    \
@@ -147,12 +160,18 @@ EXTRA_DIST =                                        \
 	pth_process_shared_mutex.vgtest             \
 	pth_spinlock.stderr.exp                     \
 	pth_spinlock.vgtest                         \
+	pth_uninitialized_cond.stderr.exp           \
+	pth_uninitialized_cond.vgtest               \
+	qt4_atomic.stderr.exp                       \
+	qt4_atomic.vgtest                           \
 	qt4_mutex.stderr.exp                        \
 	qt4_mutex.vgtest                            \
 	qt4_rwlock.stderr.exp                       \
 	qt4_rwlock.vgtest                           \
 	qt4_semaphore.stderr.exp                    \
 	qt4_semaphore.vgtest                        \
+	read_after_free.stderr.exp		    \
+	read_after_free.vgtest			    \
 	recursive_mutex.stderr.exp-linux            \
 	recursive_mutex.stderr.exp-darwin           \
 	recursive_mutex.vgtest                      \
@@ -179,6 +198,8 @@ EXTRA_DIST =                                        \
 	sem_open_traced.vgtest                      \
 	sigalrm.stderr.exp                          \
 	sigalrm.vgtest                              \
+	sigaltstack.stderr.exp                      \
+	sigaltstack.vgtest                          \
 	tc01_simple_race.stderr.exp                 \
 	tc01_simple_race.vgtest                     \
 	tc02_simple_tls.stderr.exp                  \
@@ -242,9 +263,13 @@ EXTRA_DIST =                                        \
 
 
 check_PROGRAMS =      \
+  annotate_hb_err     \
+  annotate_hb_race    \
   annotate_ignore_rw  \
   annotate_ignore_write \
   annotate_publish_hg \
+  annotate_static     \
+  bug-235681          \
   custom_alloc        \
   fp_race             \
   hold_lock           \
@@ -262,6 +287,7 @@ check_PROGRAMS =      \
   pth_inconsistent_cond_wait \
   pth_mutex_reinit    \
   pth_process_shared_mutex   \
+  pth_uninitialized_cond \
   recursive_mutex     \
   rwlock_race         \
   rwlock_test         \
@@ -279,8 +305,14 @@ check_PROGRAMS += boost_thread
 endif
 
 if HAVE_BUILTIN_ATOMIC
-check_PROGRAMS += annotate_rwlock atomic_var circular_buffer
-check_PROGRAMS += tsan_unittest
+check_PROGRAMS +=        \
+  annotate_barrier       \
+  annotate_rwlock        \
+  annotate_smart_pointer \
+  atomic_var             \
+  circular_buffer        \
+  read_after_free        \
+  tsan_unittest
 endif
 
 if HAVE_OPENMP
@@ -301,6 +333,10 @@ endif
 
 if HAVE_QTCORE
 check_PROGRAMS += qt4_mutex qt4_rwlock qt4_semaphore
+endif
+
+if HAVE_QTCORE_QATOMICINT
+check_PROGRAMS += qt4_atomic
 endif
 
 
@@ -333,6 +369,12 @@ boost_thread_CXXFLAGS       = $(AM_CXXFLAGS) $(BOOST_CFLAGS)
 boost_thread_LDADD          = $(BOOST_LIBS)
 endif
 
+if HAVE_BUILTIN_ATOMIC
+annotate_smart_pointer_SOURCES = annotate_smart_pointer.cpp
+endif
+
+annotate_static_SOURCES     = annotate_static.cpp
+
 if HAVE_OPENMP
 omp_matinv_CFLAGS           = $(AM_CFLAGS) -fopenmp
 omp_matinv_LDFLAGS          = -fopenmp
@@ -363,4 +405,10 @@ qt4_rwlock_LDADD            = $(LDADD) $(QTCORE_LIBS)
 qt4_semaphore_SOURCES       = qt4_semaphore.cpp
 qt4_semaphore_CXXFLAGS      = $(AM_CXXFLAGS) $(QTCORE_CFLAGS)
 qt4_semaphore_LDADD         = $(LDADD) $(QTCORE_LIBS)
+endif
+
+if HAVE_QTCORE_QATOMICINT
+qt4_atomic_SOURCES          = qt4_atomic.cpp
+qt4_atomic_CXXFLAGS         = $(AM_CXXFLAGS) $(QTCORE_CFLAGS)
+qt4_atomic_LDADD            = $(LDADD) $(QTCORE_LIBS)
 endif

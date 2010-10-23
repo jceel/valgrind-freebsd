@@ -17,6 +17,7 @@ PRIV_HEADERS = 	priv/host_x86_defs.h			\
 		priv/host_ppc_defs.h			\
 		priv/host_generic_regs.h	        \
 		priv/host_generic_simd64.h	        \
+		priv/host_generic_simd128.h	        \
 		priv/main_globals.h			\
 		priv/main_util.h			\
 		priv/guest_generic_x87.h               	\
@@ -44,6 +45,7 @@ LIB_OBJS = 	priv/ir_defs.o                          \
 		priv/host_ppc_isel.o			\
 		priv/host_generic_regs.o	        \
 		priv/host_generic_simd64.o	        \
+		priv/host_generic_simd128.o	        \
 		priv/host_generic_reg_alloc2.o		\
 		priv/guest_generic_x87.o	        \
 		priv/guest_generic_bb_to_IR.o		\
@@ -98,7 +100,7 @@ all: vex
 # Empty, needed for Valgrind
 install:
 
-scratch: clean version all
+scratch: clean all
 
 vex: libvex.a test_main.o
 	$(CC) $(CCFLAGS) -o vex test_main.o libvex.a
@@ -162,33 +164,20 @@ TAG-amd64-darwin:
 	touch TAG-amd64-darwin
 
 
-# This doesn't get rid of priv/main/vex_svnversion.h, because
-# that can't be regenerated in the final Valgrind tarball, and
-# so if 'make clean' did get rid of it, then in the tarball,
-# doing 'make ; make clean ; make' (or distclean) would fail.
 clean:
 	rm -f $(LIB_OBJS) *.a vex test_main.o TAG-* \
 		pub/libvex_guest_offsets.h \
 		auxprogs/genoffsets.s
 
-version:
-	rm -f priv/main/vex_svnversion.h
-	cat quote.txt   >> priv/main/vex_svnversion.h
-	svnversion -n . >> priv/main/vex_svnversion.h
-	cat quote.txt   >> priv/main/vex_svnversion.h
-	cat newline.txt >> priv/main/vex_svnversion.h
-
-minidist: version
+minidist:
 	rm -f vex--minidist-2005MMDD.tar
 	tar cf vex--minidist-2005MMDD.tar $(PUB_HEADERS) $(PRIV_HEADERS) \
-		priv/main/vex_svnversion.h			\
 		test_main.c test_main.h				\
 		Makefile					\
 		`echo $(LIB_OBJS) | sed "s/\.o/\.c/g"`
 	@echo 
-	@echo minidist done, size and svnversion follow:
+	@echo minidist done, size follows:
 	@ls -l vex--minidist-2005MMDD.tar
-	@cat priv/main/vex_svnversion.h
 	@echo
 
 # This is very uggerly.  Need to sed out both "xyzzyN" and
@@ -223,8 +212,7 @@ priv/ir_opt.o: $(ALL_HEADERS) priv/ir_opt.c
 	$(CC) $(CCFLAGS) $(ALL_INCLUDES) -o priv/ir_opt.o \
 					 -c priv/ir_opt.c
 
-priv/main_main.o: $(ALL_HEADERS) priv/main_main.c \
-					priv/main/vex_svnversion.h
+priv/main_main.o: $(ALL_HEADERS) priv/main_main.c
 	$(CC) $(CCFLAGS) $(ALL_INCLUDES) -o priv/main_main.o \
 					 -c priv/main_main.c
 
@@ -275,6 +263,10 @@ priv/host_generic_regs.o: $(ALL_HEADERS) priv/host_generic_regs.c
 priv/host_generic_simd64.o: $(ALL_HEADERS) priv/host_generic_simd64.c
 	$(CC) $(CCFLAGS) $(ALL_INCLUDES) -o priv/host_generic_simd64.o \
 					 -c priv/host_generic_simd64.c
+
+priv/host_generic_simd128.o: $(ALL_HEADERS) priv/host_generic_simd128.c
+	$(CC) $(CCFLAGS) $(ALL_INCLUDES) -o priv/host_generic_simd128.o \
+					 -c priv/host_generic_simd128.c
 
 priv/host_generic_reg_alloc2.o: $(ALL_HEADERS) priv/host_generic_reg_alloc2.c
 	$(CC) $(CCFLAGS) $(ALL_INCLUDES) -o priv/host_generic_reg_alloc2.o \

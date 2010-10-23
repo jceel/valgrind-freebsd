@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -394,6 +394,9 @@ extern VgRes MC_(clo_leak_resolution);
 
 /* In leak check, show reachable-but-not-freed blocks?  default: NO */
 extern Bool MC_(clo_show_reachable);
+
+/* In leak check, show possibly-lost blocks?  default: YES */
+extern Bool MC_(clo_show_possibly_lost);
 
 /* Assume accesses immediately below %esp are due to gcc-2.96 bugs.
  * default: NO */

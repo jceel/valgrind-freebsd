@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -230,6 +230,42 @@ static UInt local_sys_getpid ( void )
         "r0","r2","r4","r5","r6","r7","r8","r9","r10","r11","r12"
    );
    return (UInt)__res;
+}
+
+#elif defined(VGP_arm_linux)
+
+static UInt local_sys_write_stderr ( HChar* buf, Int n )
+{
+   volatile Int block[2];
+   block[0] = (Int)buf;
+   block[1] = n;
+   __asm__ volatile (
+      "mov  r0, #2\n\t"        /* stderr */
+      "ldr  r1, [%0]\n\t"      /* buf */
+      "ldr  r2, [%0, #4]\n\t"  /* n */
+      "mov  r7, #"VG_STRINGIFY(__NR_write)"\n\t"
+      "svc  0x0\n"          /* write() */
+      "str  r0, [%0]\n\t"
+      :
+      : "r" (block)
+      : "r0","r1","r2","r7"
+   );
+   if (block[0] < 0)
+      block[0] = -1;
+   return (UInt)block[0];
+}
+
+static UInt local_sys_getpid ( void )
+{
+   UInt __res;
+   __asm__ volatile (
+      "mov  r7, #"VG_STRINGIFY(__NR_getpid)"\n"
+      "svc  0x0\n"      /* getpid() */
+      "mov  %0, r0\n"
+      : "=r" (__res)
+      :
+      : "r0", "r7" );
+   return __res;
 }
 
 #elif defined(VGP_ppc32_aix5)
@@ -932,7 +968,6 @@ static void add_to_buf ( HChar c, void* p )
 /* Send a logging message.  Nothing is output unless 'level'
    is <= the current loglevel. */
 /* EXPORTED */
-__attribute__((format(__printf__, 3, 4)))
 void VG_(debugLog) ( Int level, const HChar* modulename,
                                 const HChar* format, ... )
 {

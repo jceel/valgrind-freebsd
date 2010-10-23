@@ -7,9 +7,9 @@
   This file is part of Valgrind, a dynamic binary instrumentation
   framework.
 
-  Copyright (C) 2000-2009 Julian Seward 
+  Copyright (C) 2000-2010 Julian Seward 
      jseward@acm.org
-  Copyright (C) 2006-2009 OpenWorks LLP
+  Copyright (C) 2006-2010 OpenWorks LLP
      info@open-works.co.uk
 	
   This program is free software; you can redistribute it and/or
@@ -479,6 +479,151 @@ VG_(trampoline_stuff_end):
 #	undef UD2_1024
 #	undef UD2_PAGE
 
+/*---------------- ppc32-linux ----------------*/
+
+#elif defined(VGP_arm_linux)
+
+#       define UD2_4      .word 0xFFFFFFFF
+#	define UD2_16     UD2_4    ; UD2_4    ; UD2_4    ; UD2_4
+#	define UD2_64     UD2_16   ; UD2_16   ; UD2_16   ; UD2_16
+#	define UD2_256    UD2_64   ; UD2_64   ; UD2_64   ; UD2_64
+#	define UD2_1024   UD2_256  ; UD2_256  ; UD2_256  ; UD2_256
+#	define UD2_PAGE   UD2_1024 ; UD2_1024 ; UD2_1024 ; UD2_1024  
+
+	/* a leading page of unexecutable code */
+	UD2_PAGE
+
+.global VG_(trampoline_stuff_start)
+VG_(trampoline_stuff_start):
+
+.global VG_(arm_linux_REDIR_FOR_strlen)
+VG_(arm_linux_REDIR_FOR_strlen):
+	mov	r2, r0
+	ldrb	r0, [r0, #0]	@ zero_extendqisi2
+	@ lr needed for prologue
+	cmp	r0, #0
+	bxeq	lr
+	mov	r0, #0
+.L5:
+	add	r0, r0, #1
+	ldrb	r3, [r0, r2]	@ zero_extendqisi2
+	cmp	r3, #0
+	bne	.L5
+	bx	lr
+	UD2_4
+
+//.global VG_(arm_linux_REDIR_FOR_index)
+//VG_(arm_linux_REDIR_FOR_index):
+//	ldrb	r3, [r0, #0]	@ zero_extendqisi2
+//	and	r1, r1, #255
+//	cmp	r3, r1
+//	@ lr needed for prologue
+//	bne	.L9
+//	bx	lr
+//.L12:
+//	ldrb	r3, [r0, #1]!	@ zero_extendqisi2
+//	cmp	r3, r1
+//	beq	.L11
+//.L9:
+//	cmp	r3, #0
+//	bne	.L12
+//	mov	r0, #0
+//	bx	lr
+//.L11:
+//	bx	lr
+//	UD2_4
+
+.global VG_(arm_linux_REDIR_FOR_memcpy)
+VG_(arm_linux_REDIR_FOR_memcpy):
+	stmfd	sp!, {r4, r5, lr}
+	subs	lr, r2, #0
+	mov	r5, r0
+	beq	.L2
+	cmp	r0, r1
+	bls	.L4
+	add	r3, r0, lr
+	add	r1, lr, r1
+	cmp	lr, #3
+	sub	r4, r3, #1
+	sub	r0, r1, #1
+	ble	.L28
+	sub	ip, r3, #5
+	sub	r1, r1, #5
+.L8:
+	ldrb	r3, [r1, #4]	@ zero_extendqisi2
+	sub	lr, lr, #4
+	strb	r3, [ip, #4]
+	ldrb	r2, [r1, #3]	@ zero_extendqisi2
+	cmp	lr, #3
+	strb	r2, [ip, #3]
+	ldrb	r3, [r1, #2]	@ zero_extendqisi2
+	mov	r4, ip
+	strb	r3, [ip, #2]
+	ldrb	r2, [r1, #1]	@ zero_extendqisi2
+	mov	r0, r1
+	strb	r2, [ip, #1]
+	sub	r1, r1, #4
+	sub	ip, ip, #4
+	bgt	.L8
+	cmp	lr, #0
+	beq	.L2
+.L28:
+	sub	r2, lr, #1
+.L21:
+	sub	r2, r2, #1
+	ldrb	r3, [r0], #-1	@ zero_extendqisi2
+	cmn	r2, #1
+	strb	r3, [r4], #-1
+	bne	.L21
+.L2:
+	mov	r0, r5
+	ldmfd	sp!, {r4, r5, pc}
+.L4:
+	bcs	.L2
+	cmp	lr, #3
+	mov	ip, r0
+	ble	.L29
+.L19:
+	ldrb	r3, [r1, #0]	@ zero_extendqisi2
+	sub	lr, lr, #4
+	strb	r3, [ip, #0]
+	ldrb	r2, [r1, #1]	@ zero_extendqisi2
+	cmp	lr, #3
+	strb	r2, [ip, #1]
+	ldrb	r3, [r1, #2]	@ zero_extendqisi2
+	strb	r3, [ip, #2]
+	ldrb	r2, [r1, #3]	@ zero_extendqisi2
+	add	r1, r1, #4
+	strb	r2, [ip, #3]
+	add	ip, ip, #4
+	bgt	.L19
+	cmp	lr, #0
+	beq	.L2
+.L29:
+	sub	r2, lr, #1
+.L20:
+	sub	r2, r2, #1
+	ldrb	r3, [r1], #1	@ zero_extendqisi2
+	cmn	r2, #1
+	strb	r3, [ip], #1
+	bne	.L20
+	mov	r0, r5
+	ldmfd	sp!, {r4, r5, pc}
+	UD2_4
+
+.global VG_(trampoline_stuff_end)
+VG_(trampoline_stuff_end):
+
+	/* and a trailing page of unexecutable code */
+	UD2_PAGE
+
+#	undef UD2_4
+#	undef UD2_16
+#	undef UD2_64
+#	undef UD2_256
+#	undef UD2_1024
+#	undef UD2_PAGE
+        
 /*---------------- ppc32-aix5 ----------------*/
 #else
 #if defined(VGP_ppc32_aix5)
@@ -779,8 +924,8 @@ VG_(x86_darwin_SUBST_FOR_sigreturn):
         int     $0x80
         ud2
 
-.globl VG_(darwin_REDIR_FOR_strlen)
-VG_(darwin_REDIR_FOR_strlen):
+.globl VG_(x86_darwin_REDIR_FOR_strlen)
+VG_(x86_darwin_REDIR_FOR_strlen):
         movl    4(%esp), %edx
         movl    %edx, %eax
         jmp     1f
@@ -792,8 +937,8 @@ VG_(darwin_REDIR_FOR_strlen):
         subl    %edx, %eax
         ret
 
-.globl VG_(darwin_REDIR_FOR_strcat)
-VG_(darwin_REDIR_FOR_strcat):
+.globl VG_(x86_darwin_REDIR_FOR_strcat)
+VG_(x86_darwin_REDIR_FOR_strcat):
         pushl   %esi
         movl    8(%esp), %esi
         movl    12(%esp), %ecx
@@ -816,8 +961,8 @@ VG_(darwin_REDIR_FOR_strcat):
         ret
 
 
-.globl VG_(darwin_REDIR_FOR_strcmp)
-VG_(darwin_REDIR_FOR_strcmp):
+.globl VG_(x86_darwin_REDIR_FOR_strcmp)
+VG_(x86_darwin_REDIR_FOR_strcmp):
         movl    4(%esp), %edx
         movl    8(%esp), %ecx
         jmp     1f
@@ -837,8 +982,8 @@ VG_(darwin_REDIR_FOR_strcmp):
         ret
 
 
-.globl VG_(darwin_REDIR_FOR_strcpy)
-VG_(darwin_REDIR_FOR_strcpy):
+.globl VG_(x86_darwin_REDIR_FOR_strcpy)
+VG_(x86_darwin_REDIR_FOR_strcpy):
 	pushl	%ebp
 	movl	%esp, %ebp
 	pushl	%esi
@@ -859,8 +1004,8 @@ VG_(darwin_REDIR_FOR_strcpy):
 	leave
 	ret
 
-.globl VG_(darwin_REDIR_FOR_strlcat)
-VG_(darwin_REDIR_FOR_strlcat):
+.globl VG_(x86_darwin_REDIR_FOR_strlcat)
+VG_(x86_darwin_REDIR_FOR_strlcat):
 	pushl	%ebp
 	movl	%esp, %ebp
 	pushl	%edi
@@ -889,7 +1034,7 @@ VG_(darwin_REDIR_FOR_strlcat):
 3:
 	movl	12(%ebp), %eax
 	movl	%eax, (%esp)
-	call	VG_(darwin_REDIR_FOR_strlen)
+	call	VG_(x86_darwin_REDIR_FOR_strlen)
 	jmp	7f
 4:
 	cmpl	$1, %esi
@@ -931,8 +1076,16 @@ VG_(trampoline_stuff_end):
 .globl VG_(trampoline_stuff_start)
 VG_(trampoline_stuff_start):
 
-.globl VG_(darwin_REDIR_FOR_strlen)
-VG_(darwin_REDIR_FOR_strlen):
+.globl VG_(amd64_darwin_SUBST_FOR_sigreturn)
+VG_(amd64_darwin_SUBST_FOR_sigreturn):
+        /* XXX does this need to have any special form? (cf x86-linux
+	version) */
+        movq    $ __NR_DARWIN_FAKE_SIGRETURN, %rax
+        syscall
+        ud2
+
+.globl VG_(amd64_darwin_REDIR_FOR_strlen)
+VG_(amd64_darwin_REDIR_FOR_strlen):
         movq    %rdi, %rax
         jmp     1f
 0:
@@ -943,8 +1096,8 @@ VG_(darwin_REDIR_FOR_strlen):
         subq    %rdi, %rax
         ret
 
-.globl VG_(darwin_REDIR_FOR_strcat)
-VG_(darwin_REDIR_FOR_strcat):
+.globl VG_(amd64_darwin_REDIR_FOR_strcat)
+VG_(amd64_darwin_REDIR_FOR_strcat):
 	movq	%rdi, %rdx
 	jmp	1f
 0:
@@ -963,8 +1116,8 @@ VG_(darwin_REDIR_FOR_strcat):
 	ret
 
 
-.globl VG_(darwin_REDIR_FOR_strcmp)
-VG_(darwin_REDIR_FOR_strcmp):
+.globl VG_(amd64_darwin_REDIR_FOR_strcmp)
+VG_(amd64_darwin_REDIR_FOR_strcmp):
 	jmp	1f
 0:
 	incq	%rdi
@@ -981,8 +1134,8 @@ VG_(darwin_REDIR_FOR_strcmp):
 	subl	%edx, %eax
 	ret
 
-.globl VG_(darwin_REDIR_FOR_strcpy)
-VG_(darwin_REDIR_FOR_strcpy):
+.globl VG_(amd64_darwin_REDIR_FOR_strcpy)
+VG_(amd64_darwin_REDIR_FOR_strcpy):
 	pushq	%rbp
 	movq	%rdi, %rdx
 	movq	%rsp, %rbp
@@ -999,8 +1152,8 @@ VG_(darwin_REDIR_FOR_strcpy):
 	movq	%rdi, %rax
 	ret
 	
-.globl VG_(darwin_REDIR_FOR_strlcat)
-VG_(darwin_REDIR_FOR_strlcat):
+.globl VG_(amd64_darwin_REDIR_FOR_strlcat)
+VG_(amd64_darwin_REDIR_FOR_strlcat):
 	pushq	%rbp
 	leaq	(%rdx,%rdi), %rax
 	movq	%rdi, %rcx
@@ -1025,7 +1178,7 @@ VG_(darwin_REDIR_FOR_strlcat):
 	jmp	6f
 3:
 	movq	%rsi, %rdi
-	call	VG_(darwin_REDIR_FOR_strlen)
+	call	VG_(amd64_darwin_REDIR_FOR_strlen)
 	jmp	7f
 4:
 	cmpq	$1, %rdi
@@ -1048,8 +1201,8 @@ VG_(darwin_REDIR_FOR_strlcat):
 	leave
 	ret
 
-.globl VG_(darwin_REDIR_FOR_arc4random)
-VG_(darwin_REDIR_FOR_arc4random):
+.globl VG_(amd64_darwin_REDIR_FOR_arc4random)
+VG_(amd64_darwin_REDIR_FOR_arc4random):
 	/* not very random, hope dyld won't mind */
 	movq	$0x76616c6772696e64, %rax
 	ret
@@ -1076,7 +1229,11 @@ VG_(trampoline_stuff_end):
 
 #if defined(VGO_linux)
 /* Let the linker know we don't need an executable stack */
-.section .note.GNU-stack,"",@progbits
+#  if defined(VGP_arm_linux)
+   .section .note.GNU-stack,"",%progbits
+#  else        
+   .section .note.GNU-stack,"",@progbits
+#  endif
 #endif
 
 /*--------------------------------------------------------------------*/

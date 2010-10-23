@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (main_main.c) is                              ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                                       main_main.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -60,12 +49,15 @@
 #include "host_x86_defs.h"
 #include "host_amd64_defs.h"
 #include "host_ppc_defs.h"
+#include "host_arm_defs.h"
 
 #include "guest_generic_bb_to_IR.h"
 #include "guest_x86_defs.h"
 #include "guest_amd64_defs.h"
 #include "guest_arm_defs.h"
 #include "guest_ppc_defs.h"
+
+#include "host_generic_simd128.h"
 
 
 /* This file contains the top level interface to the library. */
@@ -88,6 +80,7 @@ void LibVEX_default_VexControl ( /*OUT*/ VexControl* vcon )
    vcon->iropt_unroll_thresh        = 120;
    vcon->guest_max_insns            = 60;
    vcon->guest_chase_thresh         = 10;
+   vcon->guest_chase_cond           = False;
 }
 
 
@@ -127,6 +120,8 @@ void LibVEX_Init (
    vassert(vcon->guest_max_insns <= 100);
    vassert(vcon->guest_chase_thresh >= 0);
    vassert(vcon->guest_chase_thresh < vcon->guest_max_insns);
+   vassert(vcon->guest_chase_cond == True 
+           || vcon->guest_chase_cond == False);
 
    /* Check that Vex has been built with sizes of basic types as
       stated in priv/libvex_basictypes.h.  Failure of any of these is
@@ -148,6 +143,7 @@ void LibVEX_Init (
    vassert(4 == sizeof(Addr32));
    vassert(8 == sizeof(Addr64));
    vassert(16 == sizeof(U128));
+   vassert(16 == sizeof(V128));
 
    vassert(sizeof(void*) == 4 || sizeof(void*) == 8);
    vassert(sizeof(void*) == sizeof(int*));
@@ -179,15 +175,15 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
    Bool         (*isMove)       ( HInstr*, HReg*, HReg* );
    void         (*getRegUsage)  ( HRegUsage*, HInstr*, Bool );
    void         (*mapRegs)      ( HRegRemap*, HInstr*, Bool );
-   HInstr*      (*genSpill)     ( HReg, Int, Bool );
-   HInstr*      (*genReload)    ( HReg, Int, Bool );
+   void         (*genSpill)     ( HInstr**, HInstr**, HReg, Int, Bool );
+   void         (*genReload)    ( HInstr**, HInstr**, HReg, Int, Bool );
    HInstr*      (*directReload) ( HInstr*, HReg, Short );
    void         (*ppInstr)      ( HInstr*, Bool );
    void         (*ppReg)        ( HReg );
    HInstrArray* (*iselSB)       ( IRSB*, VexArch, VexArchInfo*, 
                                                   VexAbiInfo* );
    Int          (*emit)         ( UChar*, Int, HInstr*, Bool, void* );
-   IRExpr*      (*specHelper)   ( HChar*, IRExpr** );
+   IRExpr*      (*specHelper)   ( HChar*, IRExpr**, IRStmt**, Int );
    Bool         (*preciseMemExnsFn) ( Int, Int );
 
    DisOneInstrFn disInstrFn;
@@ -242,10 +238,13 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          getAllocableRegs_X86 ( &n_available_real_regs,
                                 &available_real_regs );
          isMove       = (Bool(*)(HInstr*,HReg*,HReg*)) isMove_X86Instr;
-         getRegUsage  = (void(*)(HRegUsage*,HInstr*, Bool)) getRegUsage_X86Instr;
+         getRegUsage  = (void(*)(HRegUsage*,HInstr*, Bool))
+                        getRegUsage_X86Instr;
          mapRegs      = (void(*)(HRegRemap*,HInstr*, Bool)) mapRegs_X86Instr;
-         genSpill     = (HInstr*(*)(HReg,Int, Bool)) genSpill_X86;
-         genReload    = (HInstr*(*)(HReg,Int, Bool)) genReload_X86;
+         genSpill     = (void(*)(HInstr**,HInstr**,HReg,Int,Bool))
+                        genSpill_X86;
+         genReload    = (void(*)(HInstr**,HInstr**,HReg,Int,Bool))
+                        genReload_X86;
          directReload = (HInstr*(*)(HInstr*,HReg,Short)) directReload_X86;
          ppInstr      = (void(*)(HInstr*, Bool)) ppX86Instr;
          ppReg        = (void(*)(HReg)) ppHRegX86;
@@ -262,10 +261,13 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          getAllocableRegs_AMD64 ( &n_available_real_regs,
                                   &available_real_regs );
          isMove      = (Bool(*)(HInstr*,HReg*,HReg*)) isMove_AMD64Instr;
-         getRegUsage = (void(*)(HRegUsage*,HInstr*, Bool)) getRegUsage_AMD64Instr;
+         getRegUsage = (void(*)(HRegUsage*,HInstr*, Bool))
+                       getRegUsage_AMD64Instr;
          mapRegs     = (void(*)(HRegRemap*,HInstr*, Bool)) mapRegs_AMD64Instr;
-         genSpill    = (HInstr*(*)(HReg,Int, Bool)) genSpill_AMD64;
-         genReload   = (HInstr*(*)(HReg,Int, Bool)) genReload_AMD64;
+         genSpill    = (void(*)(HInstr**,HInstr**,HReg,Int,Bool))
+                       genSpill_AMD64;
+         genReload   = (void(*)(HInstr**,HInstr**,HReg,Int,Bool))
+                       genReload_AMD64;
          ppInstr     = (void(*)(HInstr*, Bool)) ppAMD64Instr;
          ppReg       = (void(*)(HReg)) ppHRegAMD64;
          iselSB      = iselSB_AMD64;
@@ -283,8 +285,8 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          isMove      = (Bool(*)(HInstr*,HReg*,HReg*)) isMove_PPCInstr;
          getRegUsage = (void(*)(HRegUsage*,HInstr*,Bool)) getRegUsage_PPCInstr;
          mapRegs     = (void(*)(HRegRemap*,HInstr*,Bool)) mapRegs_PPCInstr;
-         genSpill    = (HInstr*(*)(HReg,Int,Bool)) genSpill_PPC;
-         genReload   = (HInstr*(*)(HReg,Int,Bool)) genReload_PPC;
+         genSpill    = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genSpill_PPC;
+         genReload   = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genReload_PPC;
          ppInstr     = (void(*)(HInstr*,Bool)) ppPPCInstr;
          ppReg       = (void(*)(HReg)) ppHRegPPC;
          iselSB      = iselSB_PPC;
@@ -302,8 +304,8 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          isMove      = (Bool(*)(HInstr*,HReg*,HReg*)) isMove_PPCInstr;
          getRegUsage = (void(*)(HRegUsage*,HInstr*, Bool)) getRegUsage_PPCInstr;
          mapRegs     = (void(*)(HRegRemap*,HInstr*, Bool)) mapRegs_PPCInstr;
-         genSpill    = (HInstr*(*)(HReg,Int, Bool)) genSpill_PPC;
-         genReload   = (HInstr*(*)(HReg,Int, Bool)) genReload_PPC;
+         genSpill    = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genSpill_PPC;
+         genReload   = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genReload_PPC;
          ppInstr     = (void(*)(HInstr*, Bool)) ppPPCInstr;
          ppReg       = (void(*)(HReg)) ppHRegPPC;
          iselSB      = iselSB_PPC;
@@ -314,8 +316,27 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          vassert(vta->dispatch == NULL); /* return-to-dispatcher scheme */
          break;
 
+      case VexArchARM:
+         mode64      = False;
+         getAllocableRegs_ARM ( &n_available_real_regs,
+                                &available_real_regs );
+         isMove      = (Bool(*)(HInstr*,HReg*,HReg*)) isMove_ARMInstr;
+         getRegUsage = (void(*)(HRegUsage*,HInstr*, Bool)) getRegUsage_ARMInstr;
+         mapRegs     = (void(*)(HRegRemap*,HInstr*, Bool)) mapRegs_ARMInstr;
+         genSpill    = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genSpill_ARM;
+         genReload   = (void(*)(HInstr**,HInstr**,HReg,Int,Bool)) genReload_ARM;
+         ppInstr     = (void(*)(HInstr*, Bool)) ppARMInstr;
+         ppReg       = (void(*)(HReg)) ppHRegARM;
+         iselSB      = iselSB_ARM;
+         emit        = (Int(*)(UChar*,Int,HInstr*,Bool,void*)) emit_ARMInstr;
+         host_is_bigendian = False;
+         host_word_type    = Ity_I32;
+         vassert(are_valid_hwcaps(VexArchARM, vta->archinfo_host.hwcaps));
+         vassert(vta->dispatch == NULL); /* return-to-dispatcher scheme */
+         break;
+
       default:
-         vpanic("LibVEX_Translate: unsupported target insn set");
+         vpanic("LibVEX_Translate: unsupported host insn set");
    }
 
 
@@ -331,7 +352,7 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          offB_TISTART     = offsetof(VexGuestX86State,guest_TISTART);
          offB_TILEN       = offsetof(VexGuestX86State,guest_TILEN);
          vassert(are_valid_hwcaps(VexArchX86, vta->archinfo_guest.hwcaps));
-         vassert(0 == sizeof(VexGuestX86State) % 8);
+         vassert(0 == sizeof(VexGuestX86State) % 16);
          vassert(sizeof( ((VexGuestX86State*)0)->guest_TISTART) == 4);
          vassert(sizeof( ((VexGuestX86State*)0)->guest_TILEN  ) == 4);
          vassert(sizeof( ((VexGuestX86State*)0)->guest_NRADDR ) == 4);
@@ -347,22 +368,10 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          offB_TISTART     = offsetof(VexGuestAMD64State,guest_TISTART);
          offB_TILEN       = offsetof(VexGuestAMD64State,guest_TILEN);
          vassert(are_valid_hwcaps(VexArchAMD64, vta->archinfo_guest.hwcaps));
-         vassert(0 == sizeof(VexGuestAMD64State) % 8);
+         vassert(0 == sizeof(VexGuestAMD64State) % 16);
          vassert(sizeof( ((VexGuestAMD64State*)0)->guest_TISTART ) == 8);
          vassert(sizeof( ((VexGuestAMD64State*)0)->guest_TILEN   ) == 8);
          vassert(sizeof( ((VexGuestAMD64State*)0)->guest_NRADDR  ) == 8);
-         break;
-
-      case VexArchARM:
-         preciseMemExnsFn = guest_arm_state_requires_precise_mem_exns;
-         disInstrFn       = NULL; /* HACK */
-         specHelper       = guest_arm_spechelper;
-         guest_sizeB      = sizeof(VexGuestARMState);
-         guest_word_type  = Ity_I32;
-         guest_layout     = &armGuest_layout;
-         offB_TISTART     = 0; /* hack ... arm has bitrot */
-         offB_TILEN       = 0; /* hack ... arm has bitrot */
-         vassert(are_valid_hwcaps(VexArchARM, vta->archinfo_guest.hwcaps));
          break;
 
       case VexArchPPC32:
@@ -375,7 +384,7 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          offB_TISTART     = offsetof(VexGuestPPC32State,guest_TISTART);
          offB_TILEN       = offsetof(VexGuestPPC32State,guest_TILEN);
          vassert(are_valid_hwcaps(VexArchPPC32, vta->archinfo_guest.hwcaps));
-         vassert(0 == sizeof(VexGuestPPC32State) % 8);
+         vassert(0 == sizeof(VexGuestPPC32State) % 16);
          vassert(sizeof( ((VexGuestPPC32State*)0)->guest_TISTART ) == 4);
          vassert(sizeof( ((VexGuestPPC32State*)0)->guest_TILEN   ) == 4);
          vassert(sizeof( ((VexGuestPPC32State*)0)->guest_NRADDR  ) == 4);
@@ -396,6 +405,22 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
          vassert(sizeof( ((VexGuestPPC64State*)0)->guest_TILEN      ) == 8);
          vassert(sizeof( ((VexGuestPPC64State*)0)->guest_NRADDR     ) == 8);
          vassert(sizeof( ((VexGuestPPC64State*)0)->guest_NRADDR_GPR2) == 8);
+         break;
+
+      case VexArchARM:
+         preciseMemExnsFn = guest_arm_state_requires_precise_mem_exns;
+         disInstrFn       = disInstr_ARM;
+         specHelper       = guest_arm_spechelper;
+         guest_sizeB      = sizeof(VexGuestARMState);
+         guest_word_type  = Ity_I32;
+         guest_layout     = &armGuest_layout;
+         offB_TISTART     = offsetof(VexGuestARMState,guest_TISTART);
+         offB_TILEN       = offsetof(VexGuestARMState,guest_TILEN);
+         vassert(are_valid_hwcaps(VexArchARM, vta->archinfo_guest.hwcaps));
+         vassert(0 == sizeof(VexGuestARMState) % 16);
+         vassert(sizeof( ((VexGuestARMState*)0)->guest_TISTART) == 4);
+         vassert(sizeof( ((VexGuestARMState*)0)->guest_TILEN  ) == 4);
+         vassert(sizeof( ((VexGuestARMState*)0)->guest_NRADDR ) == 4);
          break;
 
       default:
@@ -476,7 +501,8 @@ VexTranslateResult LibVEX_Translate ( VexTranslateArgs* vta )
 
    /* Clean it up, hopefully a lot. */
    irsb = do_iropt_BB ( irsb, specHelper, preciseMemExnsFn, 
-                              vta->guest_bytes_addr );
+                              vta->guest_bytes_addr,
+                              vta->arch_guest );
    sanityCheckIRSB( irsb, "after initial iropt", 
                     True/*must be flat*/, guest_word_type );
 
@@ -706,6 +732,9 @@ void LibVEX_default_VexArchInfo ( /*OUT*/VexArchInfo* vai )
 {
    vai->hwcaps             = 0;
    vai->ppc_cache_line_szB = 0;
+   vai->ppc_dcbz_szB       = 0;
+   vai->ppc_dcbzl_szB      = 0;
+
 }
 
 /* Write default settings info *vbi. */
@@ -729,32 +758,53 @@ void LibVEX_default_VexAbiInfo ( /*OUT*/VexAbiInfo* vbi )
 static HChar* show_hwcaps_x86 ( UInt hwcaps ) 
 {
    /* Monotonic, SSE3 > SSE2 > SSE1 > baseline. */
-   if (hwcaps == 0)
-      return "x86-sse0";
-   if (hwcaps == VEX_HWCAPS_X86_SSE1)
-      return "x86-sse1";
-   if (hwcaps == (VEX_HWCAPS_X86_SSE1 | VEX_HWCAPS_X86_SSE2))
-      return "x86-sse1-sse2";
-   if (hwcaps == (VEX_HWCAPS_X86_SSE1 
-                  | VEX_HWCAPS_X86_SSE2 | VEX_HWCAPS_X86_SSE3))
-      return "x86-sse1-sse2-sse3";
-
-   return NULL;
+   switch (hwcaps) {
+      case 0:
+         return "x86-sse0";
+      case VEX_HWCAPS_X86_SSE1:
+         return "x86-sse1";
+      case VEX_HWCAPS_X86_SSE1 | VEX_HWCAPS_X86_SSE2:
+         return "x86-sse1-sse2";
+      case VEX_HWCAPS_X86_SSE1 | VEX_HWCAPS_X86_SSE2
+           | VEX_HWCAPS_X86_LZCNT:
+         return "x86-sse1-sse2-lzcnt";
+      case VEX_HWCAPS_X86_SSE1 | VEX_HWCAPS_X86_SSE2
+           | VEX_HWCAPS_X86_SSE3:
+         return "x86-sse1-sse2-sse3";
+      case VEX_HWCAPS_X86_SSE1 | VEX_HWCAPS_X86_SSE2
+           | VEX_HWCAPS_X86_SSE3 | VEX_HWCAPS_X86_LZCNT:
+         return "x86-sse1-sse2-sse3-lzcnt";
+      default:
+         return NULL;
+   }
 }
 
 static HChar* show_hwcaps_amd64 ( UInt hwcaps )
 {
    /* SSE3 and CX16 are orthogonal and > baseline, although we really
       don't expect to come across anything which can do SSE3 but can't
-      do CX16.  Still, we can handle that case. */
-   const UInt SSE3 = VEX_HWCAPS_AMD64_SSE3;
-   const UInt CX16 = VEX_HWCAPS_AMD64_CX16;
-         UInt c    = hwcaps;
-   if (c == 0)           return "amd64-sse2";
-   if (c == SSE3)        return "amd64-sse3";
-   if (c == CX16)        return "amd64-sse2-cx16";
-   if (c == (SSE3|CX16)) return "amd64-sse3-cx16";
-   return NULL;
+      do CX16.  Still, we can handle that case.  LZCNT is similarly
+      orthogonal. */
+   switch (hwcaps) {
+      case 0:
+         return "amd64-sse2";
+      case VEX_HWCAPS_AMD64_SSE3:
+         return "amd64-sse3";
+      case VEX_HWCAPS_AMD64_CX16:
+         return "amd64-sse2-cx16";
+      case VEX_HWCAPS_AMD64_SSE3 | VEX_HWCAPS_AMD64_CX16:
+         return "amd64-sse3-cx16";
+      case VEX_HWCAPS_AMD64_SSE3 | VEX_HWCAPS_AMD64_LZCNT:
+         return "amd64-sse3-lzcnt";
+      case VEX_HWCAPS_AMD64_CX16 | VEX_HWCAPS_AMD64_LZCNT:
+         return "amd64-sse2-cx16-lzcnt";
+      case VEX_HWCAPS_AMD64_SSE3 | VEX_HWCAPS_AMD64_CX16
+           | VEX_HWCAPS_AMD64_LZCNT:
+         return "amd64-sse3-cx16-lzcnt";
+
+      default:
+         return NULL;
+   }
 }
 
 static HChar* show_hwcaps_ppc32 ( UInt hwcaps )
@@ -799,7 +849,41 @@ static HChar* show_hwcaps_ppc64 ( UInt hwcaps )
 
 static HChar* show_hwcaps_arm ( UInt hwcaps )
 {
-   if (hwcaps == 0) return "arm-baseline";
+   Bool N = ((hwcaps & VEX_HWCAPS_ARM_NEON) != 0);
+   Bool vfp = ((hwcaps & (VEX_HWCAPS_ARM_VFP |
+               VEX_HWCAPS_ARM_VFP2 | VEX_HWCAPS_ARM_VFP3)) != 0);
+   switch (VEX_ARM_ARCHLEVEL(hwcaps)) {
+      case 5:
+         if (N)
+            return NULL;
+         if (vfp)
+            return "ARMv5-vfp";
+         else
+            return "ARMv5";
+         return NULL;
+      case 6:
+         if (N)
+            return NULL;
+         if (vfp)
+            return "ARMv6-vfp";
+         else
+            return "ARMv6";
+         return NULL;
+      case 7:
+         if (vfp) {
+            if (N)
+               return "ARMv7-vfp-neon";
+            else
+               return "ARMv7-vfp";
+         } else {
+            if (N)
+               return "ARMv7-neon";
+            else
+               return "ARMv7";
+         }
+      default:
+         return NULL;
+   }
    return NULL;
 }
 

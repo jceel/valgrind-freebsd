@@ -9,7 +9,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -116,6 +116,7 @@ Bool is_overlap ( void* dst, const void* src, SizeT dstlen, SizeT srclen )
 STRRCHR(VG_Z_LIBC_SONAME,   strrchr)
 STRRCHR(VG_Z_LIBC_SONAME,   rindex)
 #if defined(VGO_linux)
+STRRCHR(VG_Z_LIBC_SONAME,   __GI_strrchr)
 STRRCHR(VG_Z_LD_LINUX_SO_2, rindex)
 #elif defined(VGO_darwin)
 STRRCHR(VG_Z_DYLD,          strrchr)
@@ -140,6 +141,7 @@ STRRCHR(VG_Z_DYLD,          rindex)
 STRCHR(VG_Z_LIBC_SONAME,          strchr)
 STRCHR(VG_Z_LIBC_SONAME,          index)
 #if defined(VGO_linux)
+STRCHR(VG_Z_LIBC_SONAME,          __GI_strchr)
 STRCHR(VG_Z_LD_LINUX_SO_2,        strchr)
 STRCHR(VG_Z_LD_LINUX_SO_2,        index)
 STRCHR(VG_Z_LD_LINUX_X86_64_SO_2, strchr)
@@ -172,7 +174,9 @@ STRCHR(VG_Z_DYLD,                 index)
    }
 
 STRCAT(VG_Z_LIBC_SONAME, strcat)
-
+#if defined(VGO_linux)
+STRCAT(VG_Z_LIBC_SONAME, __GI_strcat)
+#endif
 
 #define STRNCAT(soname, fnname) \
    char* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
@@ -257,6 +261,9 @@ STRLCAT(VG_Z_DYLD,        strlcat)
    }
 
 STRNLEN(VG_Z_LIBC_SONAME, strnlen)
+#if defined(VGO_linux)
+STRNLEN(VG_Z_LIBC_SONAME, __GI_strnlen)
+#endif
    
 
 // Note that this replacement often doesn't get used because gcc inlines
@@ -274,6 +281,7 @@ STRNLEN(VG_Z_LIBC_SONAME, strnlen)
 
 STRLEN(VG_Z_LIBC_SONAME,          strlen)
 #if defined(VGO_linux)
+STRLEN(VG_Z_LIBC_SONAME,          __GI_strlen)
 STRLEN(VG_Z_LD_LINUX_SO_2,        strlen)
 STRLEN(VG_Z_LD_LINUX_X86_64_SO_2, strlen)
 #endif
@@ -301,7 +309,9 @@ STRLEN(VG_Z_LD_LINUX_X86_64_SO_2, strlen)
    }
 
 STRCPY(VG_Z_LIBC_SONAME, strcpy)
-#if defined(VGO_darwin)
+#if defined(VGO_linux)
+STRCPY(VG_Z_LIBC_SONAME, __GI_strcpy)
+#elif defined(VGO_darwin)
 STRCPY(VG_Z_DYLD,        strcpy)
 #endif
 
@@ -327,7 +337,9 @@ STRCPY(VG_Z_DYLD,        strcpy)
    }
 
 STRNCPY(VG_Z_LIBC_SONAME, strncpy)
-#if defined(VGO_darwin)
+#if defined(VGO_linux)
+STRNCPY(VG_Z_LIBC_SONAME, __GI_strncpy)
+#elif defined(VGO_darwin)
 STRNCPY(VG_Z_DYLD,        strncpy)
 #endif
 
@@ -384,7 +396,9 @@ STRLCPY(VG_Z_DYLD,        strlcpy)
    }
 
 STRNCMP(VG_Z_LIBC_SONAME, strncmp)
-#if defined(VGO_darwin)
+#if defined(VGO_linux)
+STRNCMP(VG_Z_LIBC_SONAME, __GI_strncmp)
+#elif defined(VGO_darwin)
 STRNCMP(VG_Z_DYLD,        strncmp)
 #endif
 
@@ -411,6 +425,7 @@ STRNCMP(VG_Z_DYLD,        strncmp)
 
 STRCMP(VG_Z_LIBC_SONAME,          strcmp)
 #if defined(VGO_linux)
+STRCMP(VG_Z_LIBC_SONAME,          __GI_strcmp)
 STRCMP(VG_Z_LD_LINUX_X86_64_SO_2, strcmp)
 STRCMP(VG_Z_LD64_SO_1,            strcmp)
 #endif
@@ -440,42 +455,68 @@ MEMCHR(VG_Z_DYLD,        memchr)
    void* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
             ( void *dst, const void *src, SizeT len ) \
    { \
-      register char *d; \
-      register char *s; \
-      \
-      if (len == 0) \
-         return dst; \
-      \
       if (is_overlap(dst, src, len, len)) \
          RECORD_OVERLAP_ERROR("memcpy", dst, src, len); \
       \
-      if ( dst > src ) { \
-         d = (char *)dst + len - 1; \
-         s = (char *)src + len - 1; \
-         while ( len >= 4 ) { \
-            *d-- = *s--; \
-            *d-- = *s--; \
-            *d-- = *s--; \
-            *d-- = *s--; \
-            len -= 4; \
+      const Addr WS = sizeof(UWord); /* 8 or 4 */ \
+      const Addr WM = WS - 1;        /* 7 or 3 */ \
+      \
+      if (dst < src) { \
+      \
+         /* Copying backwards. */ \
+         SizeT n = len; \
+         Addr  d = (Addr)dst; \
+         Addr  s = (Addr)src; \
+         \
+         if (((s^d) & WM) == 0) { \
+            /* s and d have same UWord alignment. */ \
+            /* Pull up to a UWord boundary. */ \
+            while ((s & WM) != 0 && n >= 1) \
+               { *(UChar*)d = *(UChar*)s; s += 1; d += 1; n -= 1; } \
+            /* Copy UWords. */ \
+            while (n >= WS) \
+               { *(UWord*)d = *(UWord*)s; s += WS; d += WS; n -= WS; } \
+            if (n == 0) \
+               return dst; \
          } \
-         while ( len-- ) { \
-            *d-- = *s--; \
+         if (((s|d) & 1) == 0) { \
+            /* Both are 16-aligned; copy what we can thusly. */ \
+            while (n >= 2) \
+               { *(UShort*)d = *(UShort*)s; s += 2; d += 2; n -= 2; } \
          } \
-      } else if ( dst < src ) { \
-         d = (char *)dst; \
-         s = (char *)src; \
-         while ( len >= 4 ) { \
-            *d++ = *s++; \
-            *d++ = *s++; \
-            *d++ = *s++; \
-            *d++ = *s++; \
-            len -= 4; \
+         /* Copy leftovers, or everything if misaligned. */ \
+         while (n >= 1) \
+            { *(UChar*)d = *(UChar*)s; s += 1; d += 1; n -= 1; } \
+      \
+      } else if (dst > src) { \
+      \
+         SizeT n = len; \
+         Addr  d = ((Addr)dst) + n; \
+         Addr  s = ((Addr)src) + n; \
+         \
+         /* Copying forwards. */ \
+         if (((s^d) & WM) == 0) { \
+            /* s and d have same UWord alignment. */ \
+            /* Back down to a UWord boundary. */ \
+            while ((s & WM) != 0 && n >= 1) \
+               { s -= 1; d -= 1; *(UChar*)d = *(UChar*)s; n -= 1; } \
+            /* Copy UWords. */ \
+            while (n >= WS) \
+               { s -= WS; d -= WS; *(UWord*)d = *(UWord*)s; n -= WS; } \
+            if (n == 0) \
+               return dst; \
          } \
-         while ( len-- ) { \
-            *d++ = *s++; \
+         if (((s|d) & 1) == 0) { \
+            /* Both are 16-aligned; copy what we can thusly. */ \
+            while (n >= 2) \
+               { s -= 2; d -= 2; *(UShort*)d = *(UShort*)s; n -= 2; } \
          } \
+         /* Copy leftovers, or everything if misaligned. */ \
+         while (n >= 1) \
+            { s -= 1; d -= 1; *(UChar*)d = *(UChar*)s; n -= 1; } \
+         \
       } \
+      \
       return dst; \
    }
 
@@ -557,6 +598,7 @@ MEMCMP(VG_Z_DYLD,        bcmp)
 
 STPCPY(VG_Z_LIBC_SONAME,          stpcpy)
 #if defined(VGO_linux)
+STPCPY(VG_Z_LIBC_SONAME,          __GI_stpcpy)
 STPCPY(VG_Z_LD_LINUX_SO_2,        stpcpy)
 STPCPY(VG_Z_LD_LINUX_X86_64_SO_2, stpcpy)
 #elif defined(VGO_darwin)
@@ -568,18 +610,16 @@ STPCPY(VG_Z_DYLD,                 stpcpy)
    void* VG_REPLACE_FUNCTION_ZU(soname,fnname)(void *s, Int c, SizeT n); \
    void* VG_REPLACE_FUNCTION_ZU(soname,fnname)(void *s, Int c, SizeT n) \
    { \
-      unsigned char *cp = s; \
-      while (n >= 4) { \
-         cp[0] = c; \
-         cp[1] = c; \
-         cp[2] = c; \
-         cp[3] = c; \
-         cp += 4; \
-         n -= 4; \
-      } \
-      while (n--) { \
-         *cp++ = c; \
-      } \
+      Addr a  = (Addr)s;   \
+      UInt c4 = (c & 0xFF); \
+      c4 = (c4 << 8) | c4; \
+      c4 = (c4 << 16) | c4; \
+      while ((a & 3) != 0 && n >= 1) \
+         { *(UChar*)a = (UChar)c; a += 1; n -= 1; } \
+      while (n >= 4) \
+         { *(UInt*)a = c4; a += 4; n -= 4; } \
+      while (n >= 1) \
+         { *(UChar*)a = (UChar)c; a += 1; n -= 1; } \
       return s; \
    }
 
@@ -709,7 +749,9 @@ GLIBC232_STRCHRNUL(VG_Z_LIBC_SONAME, strchrnul)
    }
 
 GLIBC232_RAWMEMCHR(VG_Z_LIBC_SONAME, rawmemchr)
-
+#if defined (VGO_linux)
+GLIBC232_RAWMEMCHR(VG_Z_LIBC_SONAME, __GI___rawmemchr)
+#endif
 
 /* glibc variant of strcpy that checks the dest is big enough.
    Copied from glibc-2.5/debug/test-strcpy_chk.c. */
@@ -847,6 +889,153 @@ GLIBC25_MEMPCPY(VG_Z_LD_SO_1,     mempcpy) /* ld.so.1 */
    }
 
 GLIBC26___MEMCPY_CHK(VG_Z_LIBC_SONAME, __memcpy_chk)
+
+
+#define STRSTR(soname, fnname) \
+   void* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* haystack, void* needle); \
+   void* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* haystack, void* needle) \
+   { \
+      UChar* h = (UChar*)haystack; \
+      UChar* n = (UChar*)needle; \
+      \
+      /* find the length of n, not including terminating zero */ \
+      UWord nlen = 0; \
+      while (n[nlen]) nlen++; \
+      \
+      /* if n is the empty string, match immediately. */ \
+      if (nlen == 0) return h; \
+      \
+      /* assert(nlen >= 1); */ \
+      UChar n0 = n[0]; \
+      \
+      while (1) { \
+         UChar hh = *h; \
+         if (hh == 0) return NULL; \
+         if (hh != n0) { h++; continue; } \
+         \
+         UWord i; \
+         for (i = 0; i < nlen; i++) { \
+            if (n[i] != h[i]) \
+               break; \
+         } \
+         /* assert(i >= 0 && i <= nlen); */ \
+         if (i == nlen) \
+            return h; \
+         \
+         h++; \
+      } \
+   }
+
+#if defined(VGO_linux)
+STRSTR(VG_Z_LIBC_SONAME,          strstr)
+#endif
+
+
+#define STRPBRK(soname, fnname) \
+   void* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* sV, void* acceptV); \
+   void* VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* sV, void* acceptV) \
+   { \
+      UChar* s = (UChar*)sV; \
+      UChar* accept = (UChar*)acceptV; \
+      \
+      /*  find the length of 'accept', not including terminating zero */ \
+      UWord nacc = 0; \
+      while (accept[nacc]) nacc++; \
+      \
+      /* if n is the empty string, fail immediately. */ \
+      if (nacc == 0) return NULL; \
+      \
+      /* assert(nacc >= 1); */ \
+      while (1) { \
+         UWord i; \
+         UChar sc = *s; \
+         if (sc == 0) \
+            break; \
+         for (i = 0; i < nacc; i++) { \
+            if (sc == accept[i]) \
+               return s; \
+         } \
+         s++; \
+      } \
+      \
+      return NULL; \
+   }
+
+#if defined(VGO_linux)
+STRPBRK(VG_Z_LIBC_SONAME,          strpbrk)
+#endif
+
+
+#define STRCSPN(soname, fnname) \
+   SizeT VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* sV, void* rejectV); \
+   SizeT VG_REPLACE_FUNCTION_ZU(soname,fnname) \
+         (void* sV, void* rejectV) \
+   { \
+      UChar* s = (UChar*)sV; \
+      UChar* reject = (UChar*)rejectV; \
+      \
+      /* find the length of 'reject', not including terminating zero */ \
+      UWord nrej = 0; \
+      while (reject[nrej]) nrej++; \
+      \
+      UWord len = 0; \
+      while (1) { \
+         UWord i; \
+         UChar sc = *s; \
+         if (sc == 0) \
+            break; \
+         for (i = 0; i < nrej; i++) { \
+            if (sc == reject[i]) \
+               break; \
+         } \
+         /* assert(i >= 0 && i <= nrej); */ \
+         if (i < nrej) \
+            break; \
+         s++; \
+         len++; \
+      } \
+      \
+      return len; \
+   }
+
+#if defined(VGO_linux)
+STRCSPN(VG_Z_LIBC_SONAME,          strcspn)
+#endif
+
+
+// And here's a validated strspn replacement, should it
+// become necessary.
+//UWord mystrspn( UChar* s, UChar* accept )
+//{
+//   /* find the length of 'accept', not including terminating zero */
+//   UWord nacc = 0;
+//   while (accept[nacc]) nacc++;
+//   if (nacc == 0) return 0;
+//
+//   UWord len = 0;
+//   while (1) {
+//      UWord i;
+//      UChar sc = *s;
+//      if (sc == 0)
+//         break;
+//      for (i = 0; i < nacc; i++) {
+//         if (sc == accept[i])
+//            break;
+//      }
+//      assert(i >= 0 && i <= nacc);
+//      if (i == nacc)
+//         break;
+//      s++;
+//      len++;
+//   }
+//
+//   return len;
+//}
 
 
 /*------------------------------------------------------------*/

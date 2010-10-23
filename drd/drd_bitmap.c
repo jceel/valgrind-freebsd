@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -129,7 +129,7 @@ void DRD_(bm_access_range_load)(struct bitmap* const bm, Addr a1, Addr a2)
    Addr b, b_next;
 
    tl_assert(bm);
-   tl_assert(a1 < a2);
+   tl_assert(a1 <= a2);
    tl_assert(a2 < first_address_with_higher_msb(a2));
    tl_assert(a1 == first_address_with_same_lsb(a1));
    tl_assert(a2 == first_address_with_same_lsb(a2));
@@ -226,7 +226,7 @@ void DRD_(bm_access_range_store)(struct bitmap* const bm,
    Addr b, b_next;
 
    tl_assert(bm);
-   tl_assert(a1 < a2);
+   tl_assert(a1 <= a2);
    tl_assert(a2 < first_address_with_higher_msb(a2));
    tl_assert(a1 == first_address_with_same_lsb(a1));
    tl_assert(a2 == first_address_with_same_lsb(a2));
@@ -368,7 +368,7 @@ DRD_(bm_has_any_load)(struct bitmap* const bm, const Addr a1, const Addr a2)
          tl_assert(a1 <= b_end && b_end <= a2);
          tl_assert(b_start < b_end);
          tl_assert(address_lsb(b_start) <= address_lsb(b_end - 1));
-      
+
          for (b0 = address_lsb(b_start); b0 <= address_lsb(b_end - 1); b0++)
          {
             if (bm0_is_set(p1->bm0_r, b0))
@@ -421,7 +421,7 @@ Bool DRD_(bm_has_any_store)(struct bitmap* const bm,
          tl_assert(a1 <= b_end && b_end <= a2);
          tl_assert(b_start < b_end);
          tl_assert(address_lsb(b_start) <= address_lsb(b_end - 1));
-      
+
          for (b0 = address_lsb(b_start); b0 <= address_lsb(b_end - 1); b0++)
          {
             if (bm0_is_set(p1->bm0_w, b0))
@@ -476,7 +476,7 @@ Bool DRD_(bm_has_any_access)(struct bitmap* const bm,
          tl_assert(a1 <= b_end && b_end <= a2);
          tl_assert(b_start < b_end);
          tl_assert(address_lsb(b_start) <= address_lsb(b_end - 1));
-      
+
          for (b0 = address_lsb(b_start); b0 <= address_lsb(b_end - 1); b0++)
          {
             /*
@@ -809,7 +809,7 @@ Bool DRD_(bm_has_conflict_with)(struct bitmap* const bm,
          tl_assert(a1 <= b_end && b_end <= a2);
          tl_assert(b_start < b_end);
          tl_assert(address_lsb(b_start) <= address_lsb(b_end - 1));
-      
+
          for (b0 = address_lsb(b_start); b0 <= address_lsb(b_end - 1); b0++)
          {
             if (access_type == eLoad)

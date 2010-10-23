@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -54,17 +54,13 @@
    a signal with kill, its expected to be synchronous: ie, the signal
    will have been delivered by the time the syscall finishes.
    
-   4. Asyncronous, general signals.  All other signals, sent by
+   4. Asynchronous, general signals.  All other signals, sent by
    another process with kill.  These are generally blocked, except for
    two special cases: we poll for them each time we're about to run a
    thread for a time quanta, and while running blocking syscalls.
 
 
-   In addition, we define two signals for internal use: SIGVGCHLD and
-   SIGVGKILL.  SIGVGCHLD is used to indicate thread death to any
-   reaping thread (the master thread).  It is always blocked and never
-   delivered as a signal; it is always polled with sigtimedwait.
-
+   In addition, we reserve one signal for internal use: SIGVGKILL.
    SIGVGKILL is used to terminate threads.  When one thread wants
    another to exit, it will set its exitreason and send it SIGVGKILL
    if it appears to be blocked in a syscall.
@@ -263,23 +259,30 @@ typedef struct SigQueue {
    meaningless, so the caller of VG_UCONTEXT_SYSCALL_SYSRES has to be
    very careful to pay attention to the results only when it is sure
    that the said constraint on the program counter is indeed valid. */
+
 #if defined(VGP_x86_linux)
 #  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_mcontext.eip)
 #  define VG_UCONTEXT_STACK_PTR(uc)       ((uc)->uc_mcontext.esp)
-#  define VG_UCONTEXT_FRAME_PTR(uc)       ((uc)->uc_mcontext.ebp)
 #  define VG_UCONTEXT_SYSCALL_SYSRES(uc)                        \
       /* Convert the value in uc_mcontext.eax into a SysRes. */ \
       VG_(mk_SysRes_x86_linux)( (uc)->uc_mcontext.eax )
-#  define VG_UCONTEXT_LINK_REG(uc)        0 /* Dude, where's my LR? */
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)        \
+      { (srP)->r_pc = (ULong)((uc)->uc_mcontext.eip);    \
+        (srP)->r_sp = (ULong)((uc)->uc_mcontext.esp);    \
+        (srP)->misc.X86.r_ebp = (uc)->uc_mcontext.ebp;   \
+      }
 
 #elif defined(VGP_amd64_linux)
 #  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_mcontext.rip)
 #  define VG_UCONTEXT_STACK_PTR(uc)       ((uc)->uc_mcontext.rsp)
-#  define VG_UCONTEXT_FRAME_PTR(uc)       ((uc)->uc_mcontext.rbp)
 #  define VG_UCONTEXT_SYSCALL_SYSRES(uc)                        \
       /* Convert the value in uc_mcontext.rax into a SysRes. */ \
       VG_(mk_SysRes_amd64_linux)( (uc)->uc_mcontext.rax )
-#  define VG_UCONTEXT_LINK_REG(uc)        0 /* No LR on amd64 either */
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)        \
+      { (srP)->r_pc = (uc)->uc_mcontext.rip;             \
+        (srP)->r_sp = (uc)->uc_mcontext.rsp;             \
+        (srP)->misc.AMD64.r_rbp = (uc)->uc_mcontext.rbp; \
+      }
 
 #elif defined(VGP_ppc32_linux)
 /* Comments from Paul Mackerras 25 Nov 05:
@@ -326,21 +329,23 @@ typedef struct SigQueue {
    uc->uc_regs->mc_gregs[PT_MSR], otherwise it clears it.  That bit
    will always be clear under 2.4.20.  So you can use that bit to tell
    whether uc->uc_regs->mc_vregs is valid. */
-#  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_regs->mc_gregs[VKI_PT_NIP])
-#  define VG_UCONTEXT_STACK_PTR(uc)       ((uc)->uc_regs->mc_gregs[VKI_PT_R1])
-#  define VG_UCONTEXT_FRAME_PTR(uc)       ((uc)->uc_regs->mc_gregs[VKI_PT_R1])
+#  define VG_UCONTEXT_INSTR_PTR(uc)  ((uc)->uc_regs->mc_gregs[VKI_PT_NIP])
+#  define VG_UCONTEXT_STACK_PTR(uc)  ((uc)->uc_regs->mc_gregs[VKI_PT_R1])
 #  define VG_UCONTEXT_SYSCALL_SYSRES(uc)                            \
       /* Convert the values in uc_mcontext r3,cr into a SysRes. */  \
       VG_(mk_SysRes_ppc32_linux)(                                   \
          (uc)->uc_regs->mc_gregs[VKI_PT_R3],                        \
          (((uc)->uc_regs->mc_gregs[VKI_PT_CCR] >> 28) & 1)          \
       )
-#  define VG_UCONTEXT_LINK_REG(uc)        ((uc)->uc_regs->mc_gregs[VKI_PT_LNK]) 
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)                     \
+      { (srP)->r_pc = (ULong)((uc)->uc_regs->mc_gregs[VKI_PT_NIP]);   \
+        (srP)->r_sp = (ULong)((uc)->uc_regs->mc_gregs[VKI_PT_R1]);    \
+        (srP)->misc.PPC32.r_lr = (uc)->uc_regs->mc_gregs[VKI_PT_LNK]; \
+      }
 
 #elif defined(VGP_ppc64_linux)
-#  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_mcontext.gp_regs[VKI_PT_NIP])
-#  define VG_UCONTEXT_STACK_PTR(uc)       ((uc)->uc_mcontext.gp_regs[VKI_PT_R1])
-#  define VG_UCONTEXT_FRAME_PTR(uc)       ((uc)->uc_mcontext.gp_regs[VKI_PT_R1])
+#  define VG_UCONTEXT_INSTR_PTR(uc)  ((uc)->uc_mcontext.gp_regs[VKI_PT_NIP])
+#  define VG_UCONTEXT_STACK_PTR(uc)  ((uc)->uc_mcontext.gp_regs[VKI_PT_R1])
    /* Dubious hack: if there is an error, only consider the lowest 8
       bits of r3.  memcheck/tests/post-syscall shows a case where an
       interrupted syscall should have produced a ucontext with 0x4
@@ -355,7 +360,26 @@ typedef struct SigQueue {
       if (err) r3 &= 0xFF;
       return VG_(mk_SysRes_ppc64_linux)( r3, err );
    }
-#  define VG_UCONTEXT_LINK_REG(uc)        ((uc)->uc_mcontext.gp_regs[VKI_PT_LNK]) 
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)                       \
+      { (srP)->r_pc = (uc)->uc_mcontext.gp_regs[VKI_PT_NIP];            \
+        (srP)->r_sp = (uc)->uc_mcontext.gp_regs[VKI_PT_R1];             \
+        (srP)->misc.PPC64.r_lr = (uc)->uc_mcontext.gp_regs[VKI_PT_LNK]; \
+      }
+
+#elif defined(VGP_arm_linux)
+#  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_mcontext.arm_pc)
+#  define VG_UCONTEXT_STACK_PTR(uc)       ((uc)->uc_mcontext.arm_sp)
+#  define VG_UCONTEXT_SYSCALL_SYSRES(uc)                        \
+      /* Convert the value in uc_mcontext.rax into a SysRes. */ \
+      VG_(mk_SysRes_arm_linux)( (uc)->uc_mcontext.arm_r0 )
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)       \
+      { (srP)->r_pc = (uc)->uc_mcontext.arm_pc;         \
+        (srP)->r_sp = (uc)->uc_mcontext.arm_sp;         \
+        (srP)->misc.ARM.r14 = (uc)->uc_mcontext.arm_lr; \
+        (srP)->misc.ARM.r12 = (uc)->uc_mcontext.arm_ip; \
+        (srP)->misc.ARM.r11 = (uc)->uc_mcontext.arm_fp; \
+        (srP)->misc.ARM.r7  = (uc)->uc_mcontext.arm_r7; \
+      }
 
 #elif defined(VGP_ppc32_aix5)
 
@@ -470,14 +494,15 @@ typedef struct SigQueue {
       return VG_(mk_SysRes_x86_darwin)( scclass, err ? True : False, 
                                         wHI, wLO );
    }
-   static inline Addr VG_UCONTEXT_LINK_REG( void* ucV ) {
-      return 0; /* No, really.  We have no LRs today. */
-   }
-   static inline Addr VG_UCONTEXT_FRAME_PTR( void* ucV ) {
-      ucontext_t* uc = (ucontext_t*)ucV;
+   static inline
+   void VG_UCONTEXT_TO_UnwindStartRegs( UnwindStartRegs* srP,
+                                        void* ucV ) {
+      ucontext_t* uc = (ucontext_t*)(ucV);
       struct __darwin_mcontext32* mc = uc->uc_mcontext;
       struct __darwin_i386_thread_state* ss = &mc->__ss;
-      return ss->__ebp;
+      srP->r_pc = (ULong)(ss->__eip);
+      srP->r_sp = (ULong)(ss->__esp);
+      srP->misc.X86.r_ebp = (UInt)(ss->__ebp);
    }
 
 #elif defined(VGP_amd64_darwin)
@@ -492,10 +517,9 @@ typedef struct SigQueue {
                                                     UWord scclass ) {
       I_die_here;
    }
-   static inline Addr VG_UCONTEXT_LINK_REG( void* ucV ) {
-      return 0; /* No, really.  We have no LRs today. */
-   }
-   static inline Addr VG_UCONTEXT_FRAME_PTR( void* ucV ) {
+   static inline
+   void VG_UCONTEXT_TO_UnwindStartRegs( UnwindStartRegs* srP,
+                                        void* ucV ) {
       I_die_here;
    }
 
@@ -763,6 +787,7 @@ extern void my_sigreturn(void);
    "	movl	$" #name ", %eax\n" \
    "	int	$0x80\n" \
    ".previous\n"
+
 #elif defined(VGP_amd64_linux)
 #  define _MY_SIGRETURN(name) \
    ".text\n" \
@@ -770,6 +795,7 @@ extern void my_sigreturn(void);
    "	movq	$" #name ", %rax\n" \
    "	syscall\n" \
    ".previous\n"
+
 #elif defined(VGP_ppc32_linux)
 #  define _MY_SIGRETURN(name) \
    ".text\n" \
@@ -777,6 +803,7 @@ extern void my_sigreturn(void);
    "	li	0, " #name "\n" \
    "	sc\n" \
    ".previous\n"
+
 #elif defined(VGP_ppc64_linux)
 #  define _MY_SIGRETURN(name) \
    ".align   2\n" \
@@ -791,6 +818,15 @@ extern void my_sigreturn(void);
    ".my_sigreturn:\n" \
    "	li	0, " #name "\n" \
    "	sc\n"
+
+#elif defined(VGP_arm_linux)
+#  define _MY_SIGRETURN(name) \
+   ".text\n" \
+   "my_sigreturn:\n\t" \
+   "    mov  r7, #" #name "\n\t" \
+   "    svc  0x00000000\n" \
+   ".previous\n"
+
 #elif defined(VGP_ppc32_aix5)
 #  define _MY_SIGRETURN(name) \
    ".globl my_sigreturn\n" \
@@ -801,18 +837,21 @@ extern void my_sigreturn(void);
    ".globl my_sigreturn\n" \
    "my_sigreturn:\n" \
    ".long 0\n"
+
 #elif defined(VGP_x86_darwin)
 #  define _MY_SIGRETURN(name) \
    ".text\n" \
    "my_sigreturn:\n" \
    "movl $" VG_STRINGIFY(__NR_DARWIN_FAKE_SIGRETURN) ",%eax\n" \
    "int $0x80"
+
 #elif defined(VGP_amd64_darwin)
    // DDD: todo
 #  define _MY_SIGRETURN(name) \
    ".text\n" \
    "my_sigreturn:\n" \
    "ud2\n"
+
 #else
 #  error Unknown platform
 #endif
@@ -935,7 +974,7 @@ SysRes VG_(do_sys_sigaltstack) ( ThreadId tid, vki_stack_t* ss, vki_stack_t* oss
    m_SP  = VG_(get_SP)(tid);
 
    if (VG_(clo_trace_signals))
-      VG_(emsg)("sys_sigaltstack: tid %d, "
+      VG_(dmsg)("sys_sigaltstack: tid %d, "
                 "ss %p{%p,sz=%llu,flags=0x%llx}, oss %p (current SP %p)\n",
                 tid, (void*)ss, 
                 ss ? ss->ss_sp : 0,
@@ -980,7 +1019,7 @@ SysRes VG_(do_sys_sigaction) ( Int signo,
                                vki_sigaction_fromK_t* old_act )
 {
    if (VG_(clo_trace_signals))
-      VG_(emsg)("sys_sigaction: sigNo %d, "
+      VG_(dmsg)("sys_sigaction: sigNo %d, "
                 "new %#lx, old %#lx, new flags 0x%llx\n",
                 signo, (UWord)new_act, (UWord)old_act,
                 (ULong)(new_act ? new_act->sa_flags : 0));
@@ -1129,7 +1168,7 @@ void do_setmask ( ThreadId tid,
 		  vki_sigset_t* oldset )
 {
    if (VG_(clo_trace_signals))
-      VG_(emsg)("do_setmask: tid = %d how = %d (%s), newset = %p (%s)\n", 
+      VG_(dmsg)("do_setmask: tid = %d how = %d (%s), newset = %p (%s)\n", 
                 tid, how,
                 how==VKI_SIG_BLOCK ? "SIG_BLOCK" : (
                    how==VKI_SIG_UNBLOCK ? "SIG_UNBLOCK" : (
@@ -1141,7 +1180,7 @@ void do_setmask ( ThreadId tid,
    if (oldset) {
       *oldset = VG_(threads)[tid].sig_mask;
       if (VG_(clo_trace_signals))
-         VG_(emsg)("\toldset=%p %s\n", oldset, format_sigset(oldset));
+         VG_(dmsg)("\toldset=%p %s\n", oldset, format_sigset(oldset));
    }
    if (newset) {
       do_sigprocmask_bitops (how, &VG_(threads)[tid].sig_mask, newset );
@@ -2288,11 +2327,11 @@ void sync_signalhandler_from_kernel ( ThreadId tid,
       //  tid = VG_(master_tid);
       vg_assert(tid != 0);
 
-      VG_(core_panic_at)("Killed by fatal signal",
-                         VG_UCONTEXT_INSTR_PTR(uc),
-                         VG_UCONTEXT_STACK_PTR(uc),
-                         VG_UCONTEXT_FRAME_PTR(uc),
-                         VG_UCONTEXT_LINK_REG(uc));
+      UnwindStartRegs startRegs;
+      VG_(memset)(&startRegs, 0, sizeof(startRegs));
+
+      VG_UCONTEXT_TO_UnwindStartRegs(&startRegs, uc);
+      VG_(core_panic_at)("Killed by fatal signal", &startRegs);
    }
 }
 
@@ -2507,7 +2546,7 @@ void VG_(sigstartup_actions) ( void )
       /* Get the old host action */
       ret = VG_(sigaction)(i, NULL, &sa);
 
-#     if defined(VGP_x86_darwin)
+#     if defined(VGP_x86_darwin) || defined(VGP_amd64_darwin)
       /* apparently we may not even ask about the disposition of these
          signals, let alone change them */
       if (ret != 0 && (i == VKI_SIGKILL || i == VKI_SIGSTOP))

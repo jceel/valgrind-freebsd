@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -66,6 +66,7 @@
    amd64  rax rdi  rsi  rdx  r10  r8   r9   n/a  n/a  rax       (== NUM)
    ppc32  r0  r3   r4   r5   r6   r7   r8   n/a  n/a  r3+CR0.SO (== ARG1)
    ppc64  r0  r3   r4   r5   r6   r7   r8   n/a  n/a  r3+CR0.SO (== ARG1)
+   arm    r7  r0   r1   r2   r3   r4   r5   n/a  n/a  r0        (== ARG1)
 
    AIX:
    ppc32  r2  r3   r4   r5   r6   r7   r8   r9   r10  r3(res),r4(err)
@@ -455,6 +456,18 @@ void getSyscallArgsFromGuestState ( /*OUT*/SyscallArgs*       canonical,
    canonical->arg7  = 0;
    canonical->arg8  = 0;
 
+#elif defined(VGP_arm_linux)
+   VexGuestARMState* gst = (VexGuestARMState*)gst_vanilla;
+   canonical->sysno = gst->guest_R7;
+   canonical->arg1  = gst->guest_R0;
+   canonical->arg2  = gst->guest_R1;
+   canonical->arg3  = gst->guest_R2;
+   canonical->arg4  = gst->guest_R3;
+   canonical->arg5  = gst->guest_R4;
+   canonical->arg6  = gst->guest_R5;
+   canonical->arg7  = 0;
+   canonical->arg8  = 0;
+
 #elif defined(VGP_ppc32_aix5)
    VexGuestPPC32State* gst = (VexGuestPPC32State*)gst_vanilla;
    canonical->sysno = gst->guest_GPR2;
@@ -647,6 +660,16 @@ void putSyscallArgsIntoGuestState ( /*IN*/ SyscallArgs*       canonical,
    gst->guest_GPR7 = canonical->arg5;
    gst->guest_GPR8 = canonical->arg6;
 
+#elif defined(VGP_arm_linux)
+   VexGuestARMState* gst = (VexGuestARMState*)gst_vanilla;
+   gst->guest_R7 = canonical->sysno;
+   gst->guest_R0 = canonical->arg1;
+   gst->guest_R1 = canonical->arg2;
+   gst->guest_R2 = canonical->arg3;
+   gst->guest_R3 = canonical->arg4;
+   gst->guest_R4 = canonical->arg5;
+   gst->guest_R5 = canonical->arg6;
+
 #elif defined(VGP_ppc32_aix5)
    VexGuestPPC32State* gst = (VexGuestPPC32State*)gst_vanilla;
    gst->guest_GPR2  = canonical->sysno;
@@ -736,6 +759,11 @@ void getSyscallStatusFromGuestState ( /*OUT*/SyscallStatus*     canonical,
    UInt                cr    = LibVEX_GuestPPC64_get_CR( gst );
    UInt                cr0so = (cr >> 28) & 1;
    canonical->sres = VG_(mk_SysRes_ppc64_linux)( gst->guest_GPR3, cr0so );
+   canonical->what = SsComplete;
+
+#  elif defined(VGP_arm_linux)
+   VexGuestARMState* gst = (VexGuestARMState*)gst_vanilla;
+   canonical->sres = VG_(mk_SysRes_arm_linux)( gst->guest_R0 );
    canonical->what = SsComplete;
 
 #  elif defined(VGP_ppc32_aix5)
@@ -844,7 +872,7 @@ void putSyscallStatusIntoGuestState ( /*IN*/ ThreadId tid,
    if (sr_isError(canonical->sres)) {
       /* This isn't exactly right, in that really a Failure with res
          not in the range 1 .. 4095 is unrepresentable in the
-         Linux-x86 scheme.  Oh well. */
+         Linux-amd64 scheme.  Oh well. */
       gst->guest_RAX = - (Long)sr_Err(canonical->sres);
    } else {
       gst->guest_RAX = sr_Res(canonical->sres);
@@ -887,6 +915,20 @@ void putSyscallStatusIntoGuestState ( /*IN*/ ThreadId tid,
              OFFSET_ppc64_GPR3, sizeof(UWord) );
    VG_TRACK( post_reg_write, Vg_CoreSysCall, tid, 
              OFFSET_ppc64_CR0_0, sizeof(UChar) );
+
+#  elif defined(VGP_arm_linux)
+   VexGuestARMState* gst = (VexGuestARMState*)gst_vanilla;
+   vg_assert(canonical->what == SsComplete);
+   if (sr_isError(canonical->sres)) {
+      /* This isn't exactly right, in that really a Failure with res
+         not in the range 1 .. 4095 is unrepresentable in the
+         Linux-arm scheme.  Oh well. */
+      gst->guest_R0 = - (Int)sr_Err(canonical->sres);
+   } else {
+      gst->guest_R0 = sr_Res(canonical->sres);
+   }
+   VG_TRACK( post_reg_write, Vg_CoreSysCall, tid, 
+             OFFSET_arm_R0, sizeof(UWord) );
 
 #  elif defined(VGP_ppc32_aix5)
    VexGuestPPC32State* gst = (VexGuestPPC32State*)gst_vanilla;
@@ -1031,6 +1073,17 @@ void getSyscallArgLayout ( /*OUT*/SyscallArgLayout* layout )
    layout->uu_arg7  = -1; /* impossible value */
    layout->uu_arg8  = -1; /* impossible value */
 
+#elif defined(VGP_arm_linux)
+   layout->o_sysno  = OFFSET_arm_R7;
+   layout->o_arg1   = OFFSET_arm_R0;
+   layout->o_arg2   = OFFSET_arm_R1;
+   layout->o_arg3   = OFFSET_arm_R2;
+   layout->o_arg4   = OFFSET_arm_R3;
+   layout->o_arg5   = OFFSET_arm_R4;
+   layout->o_arg6   = OFFSET_arm_R5;
+   layout->uu_arg7  = -1; /* impossible value */
+   layout->uu_arg8  = -1; /* impossible value */
+
 #elif defined(VGP_ppc32_aix5)
    layout->o_sysno  = OFFSET_ppc32_GPR2;
    layout->o_arg1   = OFFSET_ppc32_GPR3;
@@ -1117,9 +1170,7 @@ static const SyscallTableEntry* get_syscall_entry ( Int syscallno )
    const SyscallTableEntry* sys = NULL;
 
 #  if defined(VGO_linux)
-   if (syscallno < ML_(syscall_table_size) &&
-       ML_(syscall_table)[syscallno].before != NULL)
-      sys = &ML_(syscall_table)[syscallno];
+   sys = ML_(get_linux_syscall_entry)( syscallno );
 
 #  elif defined(VGP_ppc32_aix5)
    sys = ML_(get_ppc32_aix5_syscall_entry) ( syscallno );
@@ -1813,6 +1864,45 @@ void ML_(fixup_guest_state_to_restart_syscall) ( ThreadArchState* arch )
       vg_assert(p[0] == 0x44 && p[1] == 0x0 && p[2] == 0x0 && p[3] == 0x2);
    }
 
+#elif defined(VGP_arm_linux)
+   if (arch->vex.guest_R15T & 1) {
+      // Thumb mode.  SVC is a encoded as
+      //   1101 1111 imm8
+      // where imm8 is the SVC number, and we only accept 0.
+      arch->vex.guest_R15T -= 2;   // sizeof(thumb 16 bit insn)
+      UChar* p     = (UChar*)(arch->vex.guest_R15T - 1);
+      Bool   valid = p[0] == 0 && p[1] == 0xDF;
+      if (!valid) {
+         VG_(message)(Vg_DebugMsg,
+                      "?! restarting over (Thumb) syscall that is not syscall "
+                      "at %#llx %02x %02x\n",
+                      arch->vex.guest_R15T - 1ULL, p[0], p[1]);
+      }
+      vg_assert(valid);
+      // FIXME: NOTE, this really isn't right.  We need to back up
+      // ITSTATE to what it was before the SVC instruction, but we
+      // don't know what it was.  At least assert that it is now
+      // zero, because if it is nonzero then it must also have
+      // been nonzero for the SVC itself, which means it was
+      // conditional.  Urk.
+      vg_assert(arch->vex.guest_ITSTATE == 0);
+   } else {
+      // ARM mode.  SVC is encoded as 
+      //   cond 1111 imm24
+      // where imm24 is the SVC number, and we only accept 0.
+      arch->vex.guest_R15T -= 4;   // sizeof(arm instr)
+      UChar* p     = (UChar*)arch->vex.guest_R15T;
+      Bool   valid = p[0] == 0 && p[1] == 0 && p[2] == 0
+                     && (p[3] & 0xF) == 0xF;
+      if (!valid) {
+         VG_(message)(Vg_DebugMsg,
+                      "?! restarting over (ARM) syscall that is not syscall "
+                      "at %#llx %02x %02x %02x %02x\n",
+                      arch->vex.guest_R15T + 0ULL, p[0], p[1], p[2], p[3]);
+      }
+      vg_assert(valid);
+   }
+
 #elif defined(VGP_ppc32_aix5) || defined(VGP_ppc64_aix5)
    /* Hmm.  This is problematic, because on AIX the kernel resumes
       after a syscall at LR, not at the insn following SC.  Hence
@@ -1971,7 +2061,7 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
    if (VG_(clo_trace_signals))
       VG_(message)( Vg_DebugMsg,
                     "interrupted_syscall: tid=%d, ip=0x%llx, "
-                    "restart=%s, sres.isErr=%s, sres.val=%lld", 
+                    "restart=%s, sres.isErr=%s, sres.val=%lld\n", 
                     (Int)tid,
                     (ULong)ip, 
                     restart ? "True" : "False", 
@@ -1991,7 +2081,7 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
    if (outside_range) {
       if (VG_(clo_trace_signals))
          VG_(message)( Vg_DebugMsg,
-                       "  not in syscall at all: hmm, very suspicious" );
+                       "  not in syscall at all: hmm, very suspicious\n" );
       /* Looks like we weren't in a syscall at all.  Hmm. */
       vg_assert(sci->status.what != SsIdle);
       return;
@@ -2008,7 +2098,7 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
    if (in_setup_to_restart) {
       /* syscall hasn't even started; go around again */
       if (VG_(clo_trace_signals))
-         VG_(message)( Vg_DebugMsg, "  not started: restarting");
+         VG_(message)( Vg_DebugMsg, "  not started: restarting\n");
       vg_assert(sci->status.what == SsHandToKernel);
       ML_(fixup_guest_state_to_restart_syscall)(th_regs);
    } 
@@ -2020,11 +2110,11 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
          EINTR it. */
       if (restart) {
          if (VG_(clo_trace_signals))
-            VG_(message)( Vg_DebugMsg, "  at syscall instr: restarting");
+            VG_(message)( Vg_DebugMsg, "  at syscall instr: restarting\n");
          ML_(fixup_guest_state_to_restart_syscall)(th_regs);
       } else {
          if (VG_(clo_trace_signals))
-            VG_(message)( Vg_DebugMsg, "  at syscall instr: returning EINTR");
+            VG_(message)( Vg_DebugMsg, "  at syscall instr: returning EINTR\n");
          canonical = convert_SysRes_to_SyscallStatus( 
                         VG_(mk_SysRes_Error)( VKI_EINTR ) 
                      );
@@ -2042,7 +2132,7 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
          state. */
       if (VG_(clo_trace_signals))
          VG_(message)( Vg_DebugMsg,
-                       "  completed, but uncommitted: committing");
+                       "  completed, but uncommitted: committing\n");
       canonical = convert_SysRes_to_SyscallStatus( sres );
       if (!(sci->flags & SfNoWriteResult))
          putSyscallStatusIntoGuestState( tid, &canonical, &th_regs->vex );
@@ -2057,7 +2147,9 @@ VG_(fixup_guest_state_after_syscall_interrupted)( ThreadId tid,
          this up. */
       if (VG_(clo_trace_signals))
          VG_(message)( Vg_DebugMsg,
-                       "  completed and committed: nothing to do");
+                       "  completed and committed: nothing to do\n");
+      getSyscallStatusFromGuestState( &sci->status, &th_regs->vex );
+      vg_assert(sci->status.what == SsComplete);
       VG_(post_syscall)(tid);
    } 
 

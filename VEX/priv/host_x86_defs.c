@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (host_x86_defs.c) is                          ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                                   host_x86_defs.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -714,8 +703,10 @@ X86Instr* X86Instr_MFence ( UInt hwcaps ) {
    X86Instr* i          = LibVEX_Alloc(sizeof(X86Instr));
    i->tag               = Xin_MFence;
    i->Xin.MFence.hwcaps = hwcaps;
-   vassert(0 == (hwcaps & ~(VEX_HWCAPS_X86_SSE1|VEX_HWCAPS_X86_SSE2
-                                               |VEX_HWCAPS_X86_SSE3)));
+   vassert(0 == (hwcaps & ~(VEX_HWCAPS_X86_SSE1
+                            |VEX_HWCAPS_X86_SSE2
+                            |VEX_HWCAPS_X86_SSE3
+                            |VEX_HWCAPS_X86_LZCNT)));
    return i;
 }
 X86Instr* X86Instr_ACAS ( X86AMode* addr, UChar sz ) {
@@ -1620,41 +1611,50 @@ Bool isMove_X86Instr ( X86Instr* i, HReg* src, HReg* dst )
    register allocator.  Note it's critical these don't write the
    condition codes. */
 
-X86Instr* genSpill_X86 ( HReg rreg, Int offsetB, Bool mode64 )
+void genSpill_X86 ( /*OUT*/HInstr** i1, /*OUT*/HInstr** i2,
+                    HReg rreg, Int offsetB, Bool mode64 )
 {
    X86AMode* am;
    vassert(offsetB >= 0);
    vassert(!hregIsVirtual(rreg));
    vassert(mode64 == False);
+   *i1 = *i2 = NULL;
    am = X86AMode_IR(offsetB, hregX86_EBP());
-
    switch (hregClass(rreg)) {
       case HRcInt32:
-         return X86Instr_Alu32M ( Xalu_MOV, X86RI_Reg(rreg), am );
+         *i1 = X86Instr_Alu32M ( Xalu_MOV, X86RI_Reg(rreg), am );
+         return;
       case HRcFlt64:
-         return X86Instr_FpLdSt ( False/*store*/, 10, rreg, am );
+         *i1 = X86Instr_FpLdSt ( False/*store*/, 10, rreg, am );
+         return;
       case HRcVec128:
-         return X86Instr_SseLdSt ( False/*store*/, rreg, am );
+         *i1 = X86Instr_SseLdSt ( False/*store*/, rreg, am );
+         return;
       default: 
          ppHRegClass(hregClass(rreg));
          vpanic("genSpill_X86: unimplemented regclass");
    }
 }
 
-X86Instr* genReload_X86 ( HReg rreg, Int offsetB, Bool mode64 )
+void genReload_X86 ( /*OUT*/HInstr** i1, /*OUT*/HInstr** i2,
+                     HReg rreg, Int offsetB, Bool mode64 )
 {
    X86AMode* am;
    vassert(offsetB >= 0);
    vassert(!hregIsVirtual(rreg));
    vassert(mode64 == False);
+   *i1 = *i2 = NULL;
    am = X86AMode_IR(offsetB, hregX86_EBP());
    switch (hregClass(rreg)) {
       case HRcInt32:
-         return X86Instr_Alu32R ( Xalu_MOV, X86RMI_Mem(am), rreg );
+         *i1 = X86Instr_Alu32R ( Xalu_MOV, X86RMI_Mem(am), rreg );
+         return;
       case HRcFlt64:
-         return X86Instr_FpLdSt ( True/*load*/, 10, rreg, am );
+         *i1 = X86Instr_FpLdSt ( True/*load*/, 10, rreg, am );
+         return;
       case HRcVec128:
-         return X86Instr_SseLdSt ( True/*load*/, rreg, am );
+         *i1 = X86Instr_SseLdSt ( True/*load*/, rreg, am );
+         return;
       default: 
          ppHRegClass(hregClass(rreg));
          vpanic("genReload_X86: unimplemented regclass");

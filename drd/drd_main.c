@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -55,9 +55,11 @@
 
 /* Local variables. */
 
-static Bool DRD_(s_print_stats)      = False;
-static Bool DRD_(s_var_info)         = False;
-static Bool DRD_(s_show_stack_usage) = False;
+static Bool s_free_is_write    = False;
+static Bool s_print_stats      = False;
+static Bool s_var_info         = False;
+static Bool s_show_stack_usage = False;
+static Bool s_trace_alloc      = False;
 
 
 /**
@@ -88,16 +90,17 @@ static Bool DRD_(process_cmd_line_option)(Char* arg)
    Char* trace_address        = 0;
 
    if      VG_BOOL_CLO(arg, "--check-stack-var",     check_stack_accesses) {}
-   else if VG_BOOL_CLO(arg, "--drd-stats",           DRD_(s_print_stats)) {}
+   else if VG_BOOL_CLO(arg, "--drd-stats",           s_print_stats) {}
    else if VG_BOOL_CLO(arg, "--first-race-only",     first_race_only) {}
+   else if VG_BOOL_CLO(arg, "--free-is-write",       s_free_is_write) {}
    else if VG_BOOL_CLO(arg,"--report-signal-unlocked",report_signal_unlocked)
    {}
    else if VG_BOOL_CLO(arg, "--segment-merging",     segment_merging) {}
    else if VG_INT_CLO (arg, "--segment-merging-interval", segment_merge_interval)
    {}
    else if VG_BOOL_CLO(arg, "--show-confl-seg",      show_confl_seg) {}
-   else if VG_BOOL_CLO(arg, "--show-stack-usage",
-                       DRD_(s_show_stack_usage)) {}
+   else if VG_BOOL_CLO(arg, "--show-stack-usage",    s_show_stack_usage) {}
+   else if VG_BOOL_CLO(arg, "--trace-alloc",         s_trace_alloc) {}
    else if VG_BOOL_CLO(arg, "--trace-barrier",       trace_barrier) {}
    else if VG_BOOL_CLO(arg, "--trace-clientobj",     trace_clientobj) {}
    else if VG_BOOL_CLO(arg, "--trace-cond",          trace_cond) {}
@@ -110,7 +113,7 @@ static Bool DRD_(process_cmd_line_option)(Char* arg)
    else if VG_BOOL_CLO(arg, "--trace-segment",       trace_segment) {}
    else if VG_BOOL_CLO(arg, "--trace-semaphore",     trace_semaphore) {}
    else if VG_BOOL_CLO(arg, "--trace-suppr",         trace_suppression) {}
-   else if VG_BOOL_CLO(arg, "--var-info",            DRD_(s_var_info)) {}
+   else if VG_BOOL_CLO(arg, "--var-info",            s_var_info) {}
    else if VG_INT_CLO (arg, "--exclusive-threshold", exclusive_threshold_ms) {}
    else if VG_INT_CLO (arg, "--shared-threshold",    shared_threshold_ms)    {}
    else if VG_STR_CLO (arg, "--trace-addr",          trace_address) {}
@@ -184,6 +187,8 @@ static void DRD_(print_usage)(void)
 "        writer lock is held longer than the specified time (in milliseconds).\n"
 "    --first-race-only=yes|no  Only report the first data race that occurs on\n"
 "                              a memory location instead of all races [no].\n"
+"    --free-is-write=yes|no    Whether to report races between freeing memory\n"
+"                              and subsequent accesses of that memory[no].\n"
 "    --report-signal-unlocked=yes|no Whether to report calls to\n"
 "                              pthread_cond_signal() where the mutex associated\n"
 "                              with the signal via pthread_cond_wait() is not\n"
@@ -203,6 +208,7 @@ static void DRD_(print_usage)(void)
 "  drd options for monitoring process behavior:\n"
 "    --trace-addr=<address>    Trace all load and store activity for the.\n"
 "                              specified address [off].\n"
+"    --trace-alloc=yes|no      Trace all memory allocations and deallocations\n""                              [no].\n"
 "    --trace-barrier=yes|no    Trace all barrier activity [no].\n"
 "    --trace-cond=yes|no       Trace all condition variable activity [no].\n"
 "    --trace-fork-join=yes|no  Trace all thread fork/join activity [no].\n"
@@ -214,7 +220,7 @@ DRD_(thread_get_segment_merge_interval)()
 }
 
 static void DRD_(print_debug_usage)(void)
-{  
+{
    VG_(printf)(
 "    --drd-stats=yes|no        Print statistics about DRD activity [no].\n"
 "    --trace-clientobj=yes|no  Trace all client object activity [no].\n"
@@ -260,8 +266,6 @@ static void drd_pre_mem_read_asciiz(const CorePart part,
       p++;
       size++;
    }
-   // To do: find out what a reasonable upper limit on 'size' is.
-   tl_assert(size < 4096);
    if (size > 0)
    {
       DRD_(trace_load)(a, size);
@@ -281,15 +285,21 @@ static void drd_post_mem_write(const CorePart part,
 }
 
 static __inline__
-void drd_start_using_mem(const Addr a1, const SizeT len)
+void drd_start_using_mem(const Addr a1, const SizeT len,
+                         const Bool is_stack_mem)
 {
-   tl_assert(a1 < a1 + len);
+   tl_assert(a1 <= a1 + len);
+
+   if (!is_stack_mem && s_trace_alloc)
+      VG_(message)(Vg_UserMsg, "Started using memory range 0x%lx + %ld%s\n",
+                   a1, len, DRD_(running_thread_inside_pthread_create)()
+                   ? " (inside pthread_create())" : "");
 
    if (UNLIKELY(DRD_(any_address_is_traced)()))
    {
       DRD_(trace_mem_access)(a1, len, eStart);
    }
-   
+
    if (UNLIKELY(DRD_(running_thread_inside_pthread_create)()))
    {
       DRD_(start_suppression)(a1, a1 + len, "pthread_create()");
@@ -300,14 +310,14 @@ static void drd_start_using_mem_w_ecu(const Addr a1,
                                       const SizeT len,
                                       UInt ec_uniq)
 {
-   drd_start_using_mem(a1, len);
+   drd_start_using_mem(a1, len, False);
 }
 
 static void drd_start_using_mem_w_tid(const Addr a1,
                                       const SizeT len,
                                       ThreadId tid)
 {
-   drd_start_using_mem(a1, len);
+   drd_start_using_mem(a1, len, False);
 }
 
 static __inline__
@@ -316,18 +326,23 @@ void drd_stop_using_mem(const Addr a1, const SizeT len,
 {
    const Addr a2 = a1 + len;
 
-   tl_assert(a1 < a2);
+   tl_assert(a1 <= a2);
 
    if (UNLIKELY(DRD_(any_address_is_traced)()))
-   {
       DRD_(trace_mem_access)(a1, len, eEnd);
-   }
-   if (! is_stack_mem || DRD_(get_check_stack_accesses)())
+
+   if (!is_stack_mem && s_trace_alloc)
+      VG_(message)(Vg_UserMsg, "Stopped using memory range 0x%lx + %ld\n",
+                   a1, len);
+
+   if (!is_stack_mem || DRD_(get_check_stack_accesses)())
    {
-      DRD_(thread_stop_using_mem)(a1, a2);
+      DRD_(thread_stop_using_mem)(a1, a2, !is_stack_mem && s_free_is_write);
       DRD_(clientobj_stop_using_mem)(a1, a2);
       DRD_(suppression_stop_using_mem)(a1, a2);
    }
+   if (!is_stack_mem && s_free_is_write)
+      DRD_(trace_store)(a1, len);
 }
 
 static __inline__
@@ -344,7 +359,7 @@ void DRD_(clean_memory)(const Addr a1, const SizeT len)
 {
    const Bool is_stack_memory = DRD_(thread_address_on_any_stack)(a1);
    drd_stop_using_mem(a1, len, is_stack_memory);
-   drd_start_using_mem(a1, len);
+   drd_start_using_mem(a1, len, is_stack_memory);
 }
 
 /**
@@ -403,7 +418,7 @@ void drd_start_using_mem_w_perms(const Addr a, const SizeT len,
 {
    DRD_(thread_set_vg_running_tid)(VG_(get_running_tid)());
 
-   drd_start_using_mem(a, len);
+   drd_start_using_mem(a, len, False);
 
    DRD_(suppress_relocation_conflicts)(a, len);
 }
@@ -416,8 +431,9 @@ void drd_start_using_mem_stack(const Addr a, const SizeT len)
 {
    DRD_(thread_set_stack_min)(DRD_(thread_get_running_tid)(),
                               a - VG_STACK_REDZONE_SZB);
-   drd_start_using_mem(a - VG_STACK_REDZONE_SZB, 
-                       len + VG_STACK_REDZONE_SZB);
+   drd_start_using_mem(a - VG_STACK_REDZONE_SZB,
+                       len + VG_STACK_REDZONE_SZB,
+                       True);
 }
 
 /* Called by the core when the stack of a thread shrinks, to indicate that */
@@ -430,6 +446,74 @@ void drd_stop_using_mem_stack(const Addr a, const SizeT len)
                               a + len - VG_STACK_REDZONE_SZB);
    drd_stop_using_mem(a - VG_STACK_REDZONE_SZB, len + VG_STACK_REDZONE_SZB,
                       True);
+}
+
+static
+Bool on_alt_stack(const Addr a)
+{
+   ThreadId vg_tid;
+   Addr alt_min;
+   SizeT alt_size;
+
+   vg_tid = VG_(get_running_tid)();
+   alt_min = VG_(thread_get_altstack_min)(vg_tid);
+   alt_size = VG_(thread_get_altstack_size)(vg_tid);
+   return (SizeT)(a - alt_min) < alt_size;
+}
+
+static
+void drd_start_using_mem_alt_stack(const Addr a, const SizeT len)
+{
+   if (!on_alt_stack(a))
+      drd_start_using_mem_stack(a, len);
+}
+
+static
+void drd_stop_using_mem_alt_stack(const Addr a, const SizeT len)
+{
+   if (!on_alt_stack(a))
+      drd_stop_using_mem_stack(a, len);
+}
+
+/**
+ * Callback function invoked by the Valgrind core before a signal is delivered.
+ */
+static
+void drd_pre_deliver_signal(const ThreadId vg_tid, const Int sigNo,
+                            const Bool alt_stack)
+{
+   DrdThreadId drd_tid;
+
+   drd_tid = DRD_(VgThreadIdToDrdThreadId)(vg_tid);
+   DRD_(thread_set_on_alt_stack)(drd_tid, alt_stack);
+   if (alt_stack)
+   {
+      /*
+       * As soon a signal handler has been invoked on the alternate stack,
+       * switch to stack memory handling functions that can handle the
+       * alternate stack.
+       */
+      VG_(track_new_mem_stack)(drd_start_using_mem_alt_stack);
+      VG_(track_die_mem_stack)(drd_stop_using_mem_alt_stack);
+   }
+}
+
+/**
+ * Callback function invoked by the Valgrind core after a signal is delivered,
+ * at least if the signal handler did not longjmp().
+ */
+static
+void drd_post_deliver_signal(const ThreadId vg_tid, const Int sigNo)
+{
+   DrdThreadId drd_tid;
+
+   drd_tid = DRD_(VgThreadIdToDrdThreadId)(vg_tid);
+   DRD_(thread_set_on_alt_stack)(drd_tid, False);
+   if (DRD_(thread_get_threads_on_alt_stack)() == 0)
+   {
+      VG_(track_new_mem_stack)(drd_start_using_mem_stack);
+      VG_(track_die_mem_stack)(drd_stop_using_mem_stack);
+   }
 }
 
 /**
@@ -445,7 +529,7 @@ static void drd_start_using_mem_stack_signal(const Addr a, const SizeT len,
                                              ThreadId tid)
 {
    DRD_(thread_set_vg_running_tid)(VG_(get_running_tid)());
-   drd_start_using_mem(a, len);
+   drd_start_using_mem(a, len, True);
 }
 
 static void drd_stop_using_mem_stack_signal(Addr a, SizeT len)
@@ -514,7 +598,7 @@ static void drd_thread_finished(ThreadId vg_tid)
                    ? ""
                    : " (which is a detached thread)");
    }
-   if (DRD_(s_show_stack_usage))
+   if (s_show_stack_usage)
    {
       const SizeT stack_size = DRD_(thread_get_stack_size)(drd_tid);
       const SizeT used_stack
@@ -553,7 +637,7 @@ static void DRD_(post_clo_init)(void)
    VG_(printf)("\nWARNING: DRD has not yet been tested on this operating system.\n\n");
 #  endif
 
-   if (DRD_(s_var_info))
+   if (s_var_info)
    {
       VG_(needs_var_info)();
    }
@@ -569,12 +653,12 @@ static void DRD_(fini)(Int exitcode)
 {
    // thread_print_all();
    if (VG_(clo_verbosity) == 1 && !VG_(clo_xml)) {
-      VG_(message)(Vg_UserMsg, 
+      VG_(message)(Vg_UserMsg,
                    "For counts of detected and suppressed errors, "
                    "rerun with: -v\n");
    }
 
-   if (VG_(clo_stats) || DRD_(s_print_stats))
+   if (VG_(clo_stats) || s_print_stats)
    {
       ULong pu = DRD_(thread_get_update_conflict_set_count)();
       ULong pu_seg_cr = DRD_(thread_get_update_conflict_set_new_sg_count)();
@@ -635,7 +719,7 @@ void drd_pre_clo_init(void)
    VG_(details_name)            ("drd");
    VG_(details_version)         (NULL);
    VG_(details_description)     ("a thread error detector");
-   VG_(details_copyright_author)("Copyright (C) 2006-2009, and GNU GPL'd,"
+   VG_(details_copyright_author)("Copyright (C) 2006-2010, and GNU GPL'd,"
                                  " by Bart Van Assche.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
 
@@ -664,6 +748,8 @@ void drd_pre_clo_init(void)
    VG_(track_die_mem_munmap)       (drd_stop_using_nonstack_mem);
    VG_(track_die_mem_stack)        (drd_stop_using_mem_stack);
    VG_(track_die_mem_stack_signal) (drd_stop_using_mem_stack_signal);
+   VG_(track_pre_deliver_signal)   (drd_pre_deliver_signal);
+   VG_(track_post_deliver_signal)  (drd_post_deliver_signal);
    VG_(track_start_client_code)    (drd_start_client_code);
    VG_(track_pre_thread_ll_create) (drd_pre_thread_create);
    VG_(track_pre_thread_first_insn)(drd_post_thread_create);

@@ -8,7 +8,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Julian Seward 
+   Copyright (C) 2000-2010 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -38,6 +38,7 @@
 #include "pub_core_libcassert.h"
 #include "pub_core_libcprint.h"
 #include "pub_core_libcfile.h"
+#include "pub_core_libcproc.h"   // VG_(getenv)
 #include "pub_core_seqmatch.h"
 #include "pub_core_options.h"
 #include "pub_core_redir.h"      // VG_(redir_notify_{new,delete}_SegInfo)
@@ -605,7 +606,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV )
    DebugInfo* di;
    ULong      di_handle;
    SysRes     fd;
-   Int        nread;
+   Int        nread, oflags;
    HChar      buf1k[1024];
    Bool       debug = False;
    SysRes     statres;
@@ -708,7 +709,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV )
 #  if defined(VGA_x86) || defined(VGA_ppc32)
    is_rx_map = seg->hasR && seg->hasX;
    is_rw_map = seg->hasR && seg->hasW;
-#  elif defined(VGA_amd64) || defined(VGA_ppc64)
+#  elif defined(VGA_amd64) || defined(VGA_ppc64) || defined(VGA_arm)
    is_rx_map = seg->hasR && seg->hasX && !seg->hasW;
    is_rw_map = seg->hasR && seg->hasW && !seg->hasX;
 #  else
@@ -726,7 +727,11 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV )
    /* Peer at the first few bytes of the file, to see if it is an ELF */
    /* object file. Ignore the file if we do not have read permission. */
    VG_(memset)(buf1k, 0, sizeof(buf1k));
-   fd = VG_(open)( filename, VKI_O_RDONLY, 0 );
+   oflags = VKI_O_RDONLY;
+#  if defined(VKI_O_LARGEFILE)
+   oflags |= VKI_O_LARGEFILE;
+#  endif
+   fd = VG_(open)( filename, oflags, 0 );
    if (sr_isError(fd)) {
       if (sr_Err(fd) != VKI_EACCES) {
          DebugInfo fake_di;
@@ -896,7 +901,7 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
                                    SizeT total_size,
                                    PtrdiffT unknown_purpose__reloc )
 {
-   Int    r, sz_exename;
+   Int    i, r, sz_exename;
    ULong  obj_mtime, pdb_mtime;
    Char   exename[VKI_PATH_MAX];
    Char*  pdbname = NULL;
@@ -939,27 +944,86 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
       VG_(message)(Vg_UserMsg, "LOAD_PDB_DEBUGINFO: objname: %s\n", exename);
    }
 
-   /* Try to find a matching PDB file from which to read debuginfo.
-      Windows PE files have symbol tables and line number information,
-      but MSVC doesn't seem to use them. */
-   /* Why +5 ?  Because in the worst case, we could find a dot as the
-      last character of pdbname, and we'd then put "pdb" right after
-      it, hence extending it a bit. */
-   pdbname = ML_(dinfo_zalloc)("di.debuginfo.lpd1", sz_exename+5);
-   VG_(strcpy)(pdbname, exename);
-   vg_assert(pdbname[sz_exename+5-1] == 0);
-   dot = VG_(strrchr)(pdbname, '.');
-   if (!dot)
-      goto out; /* there's no dot in the exe's name ?! */
-   if (dot[1] == 0)
-      goto out; /* hmm, path ends in "." */
+   /* Try to get the PDB file name from the executable. */
+   pdbname = ML_(find_name_of_pdb_file)(exename);
+   if (pdbname) {
+      vg_assert(VG_(strlen)(pdbname) >= 5); /* 5 = strlen("X.pdb") */
+      /* So we successfully extracted a name from the PE file.  But it's
+         likely to be of the form
+            e:\foo\bar\xyzzy\wibble.pdb
+         and we need to change it into something we can actually open
+         in Wine-world, which basically means turning it into
+            $HOME/.wine/drive_e/foo/bar/xyzzy/wibble.pdb
+         We also take into account $WINEPREFIX, if it is set.
+         For the moment, if the name isn't fully qualified, just forget it
+         (we'd have to root around to find where the pdb actually is)
+      */
+      /* Change all the backslashes to forward slashes */
+      for (i = 0; pdbname[i]; i++) {
+         if (pdbname[i] == '\\')
+            pdbname[i] = '/';
+      }
+      Bool is_quald
+         = ('a' <= VG_(tolower)(pdbname[0]) && VG_(tolower)(pdbname[0]) <= 'z')
+           && pdbname[1] == ':'
+           && pdbname[2] == '/';
+      HChar* home = VG_(getenv)("HOME");
+      HChar* wpfx = VG_(getenv)("WINEPREFIX");
+      if (is_quald && wpfx) {
+         /* Change e:/foo/bar/xyzzy/wibble.pdb
+                to $WINEPREFIX/drive_e/foo/bar/xyzzy/wibble.pdb
+         */
+         Int mashedSzB = VG_(strlen)(pdbname) + VG_(strlen)(wpfx) + 50/*misc*/;
+         HChar* mashed = ML_(dinfo_zalloc)("di.debuginfo.dnpdi.1", mashedSzB);
+         VG_(sprintf)(mashed, "%s/drive_%c%s",
+                      wpfx, pdbname[0], &pdbname[2]);
+         vg_assert(mashed[mashedSzB-1] == 0);
+         ML_(dinfo_free)(pdbname);
+         pdbname = mashed;
+      }
+      else if (is_quald && home && !wpfx) {
+         /* Change e:/foo/bar/xyzzy/wibble.pdb
+                to $HOME/.wine/drive_e/foo/bar/xyzzy/wibble.pdb
+         */
+         Int mashedSzB = VG_(strlen)(pdbname) + VG_(strlen)(home) + 50/*misc*/;
+         HChar* mashed = ML_(dinfo_zalloc)("di.debuginfo.dnpdi.2", mashedSzB);
+         VG_(sprintf)(mashed, "%s/.wine/drive_%c%s",
+                      home, pdbname[0], &pdbname[2]);
+         vg_assert(mashed[mashedSzB-1] == 0);
+         ML_(dinfo_free)(pdbname);
+         pdbname = mashed;
+      } else {
+         /* It's not a fully qualified path, or neither $HOME nor $WINE
+            are set (strange).  Give up. */
+         ML_(dinfo_free)(pdbname);
+         pdbname = NULL;
+      }
+   }
 
-   if ('A' <= dot[1] && dot[1] <= 'Z')
-      VG_(strcpy)(dot, ".PDB");
-   else
-      VG_(strcpy)(dot, ".pdb");
+   /* Try s/exe/pdb/ if we don't have a valid pdbname. */
+   if (!pdbname) {
+      /* Try to find a matching PDB file from which to read debuginfo.
+         Windows PE files have symbol tables and line number information,
+         but MSVC doesn't seem to use them. */
+      /* Why +5 ?  Because in the worst case, we could find a dot as the
+         last character of pdbname, and we'd then put "pdb" right after
+         it, hence extending it a bit. */
+      pdbname = ML_(dinfo_zalloc)("di.debuginfo.lpd1", sz_exename+5);
+      VG_(strcpy)(pdbname, exename);
+      vg_assert(pdbname[sz_exename+5-1] == 0);
+      dot = VG_(strrchr)(pdbname, '.');
+      if (!dot)
+         goto out; /* there's no dot in the exe's name ?! */
+      if (dot[1] == 0)
+         goto out; /* hmm, path ends in "." */
 
-   vg_assert(pdbname[sz_exename+5-1] == 0);
+      if ('A' <= dot[1] && dot[1] <= 'Z')
+         VG_(strcpy)(dot, ".PDB");
+      else
+         VG_(strcpy)(dot, ".pdb");
+
+      vg_assert(pdbname[sz_exename+5-1] == 0);
+   }
 
    /* See if we can find it, and check it's in-dateness. */
    sres = VG_(stat)(pdbname, &stat_buf);
@@ -971,13 +1035,19 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
       goto out;
    }
    pdb_mtime = stat_buf.mtime;
-   if (pdb_mtime < obj_mtime ) {
-      /* PDB file is older than PE file - ignore it or we will either
-         (a) print wrong stack traces or more likely (b) crash. */
+
+   if (obj_mtime > pdb_mtime + 60ULL) {
+      /* PDB file is older than PE file.  Really, the PDB should be
+         newer than the PE, but that doesn't always seem to be the
+         case.  Allow the PDB to be up to one minute older.
+         Otherwise, it's probably out of date, in which case ignore it
+         or we will either (a) print wrong stack traces or more likely
+         (b) crash.
+      */
       VG_(message)(Vg_UserMsg,
-                   "Warning: Ignoring %s since it is older than %s\n",
-                   pdbname, exename);
-      goto out;
+                   "Warning:       %s (mtime = %llu)\n"
+                   " is older than %s (mtime = %llu)\n",
+                   pdbname, pdb_mtime, exename, obj_mtime);
    }
 
    sres = VG_(open)(pdbname, VKI_O_RDONLY, 0);
@@ -1173,10 +1243,13 @@ static void search_all_symtabs ( Addr ptr, /*OUT*/DebugInfo** pdi,
    for (di = debugInfo_list; di != NULL; di = di->next) {
 
       if (findText) {
-         inRange = di->text_present
-                   && di->text_size > 0
-                   && di->text_avma <= ptr 
-                   && ptr < di->text_avma + di->text_size;
+         /* Consider any symbol in the r-x mapped area to be text.
+            See Comment_Regarding_Text_Range_Checks in storage.c for
+            details. */
+         inRange = di->have_rx_map
+                   && di->rx_map_size > 0
+                   && di->rx_map_avma <= ptr
+                   && ptr < di->rx_map_avma + di->rx_map_size;
       } else {
          inRange = (di->data_present
                     && di->data_size > 0
@@ -1395,17 +1468,17 @@ Vg_FnNameKind VG_(get_fnname_kind) ( Char* name )
       return Vg_FnNameMain;
 
    } else if (
-#if defined(VGO_linux)
+#      if defined(VGO_linux)
        VG_STREQ("__libc_start_main",  name) ||  // glibc glibness
        VG_STREQ("generic_start_main", name) ||  // Yellow Dog doggedness
-#elif defined(VGO_aix5)
+#      elif defined(VGO_aix5)
        VG_STREQ("__start", name)            ||  // AIX aches
-#elif defined(VGO_darwin)
+#      elif defined(VGO_darwin)
        // See readmacho.c for an explanation of this.
        VG_STREQ("start_according_to_valgrind", name) ||  // Darwin, darling
-#else
-#      error Unknown OS
-#endif
+#      else
+#        error "Unknown OS"
+#      endif
        0) {
       return Vg_FnNameBelowMain;
 
@@ -1701,10 +1774,13 @@ Char* VG_(describe_IP)(Addr eip, Char* buf, Int n_buf)
    UInt  lineno; 
    UChar ibuf[50];
    Int   n = 0;
+
    static UChar buf_fn[BUF_LEN];
    static UChar buf_obj[BUF_LEN];
    static UChar buf_srcloc[BUF_LEN];
    static UChar buf_dirname[BUF_LEN];
+   buf_fn[0] = buf_obj[0] = buf_srcloc[0] = buf_dirname[0] = 0;
+
    Bool  know_dirinfo = False;
    Bool  know_fnname  = VG_(clo_sym_offsets)
                         ? VG_(get_fnname_w_offset) (eip, buf_fn, BUF_LEN)
@@ -1716,6 +1792,11 @@ Char* VG_(describe_IP)(Addr eip, Char* buf, Int n_buf)
                            buf_dirname, BUF_LEN, &know_dirinfo,
                            &lineno 
                         );
+   buf_fn     [ sizeof(buf_fn)-1      ]  = 0;
+   buf_obj    [ sizeof(buf_obj)-1     ]  = 0;
+   buf_srcloc [ sizeof(buf_srcloc)-1  ]  = 0;
+   buf_dirname[ sizeof(buf_dirname)-1 ]  = 0;
+
    if (VG_(clo_xml)) {
 
       Bool   human_readable = True;
@@ -1786,6 +1867,32 @@ Char* VG_(describe_IP)(Addr eip, Char* buf, Int n_buf)
       }
       if (know_srcloc) {
          APPEND(" (");
+         // Get the directory name, if any, possibly pruned, into dirname.
+         UChar* dirname = NULL;
+         if (VG_(clo_n_fullpath_after) > 0) {
+            Int i;
+            dirname = buf_dirname;
+            // Remove leading prefixes from the dirname.
+            // If user supplied --fullpath-after=foo, this will remove 
+            // a leading string which matches '.*foo' (not greedy).
+            for (i = 0; i < VG_(clo_n_fullpath_after); i++) {
+               UChar* prefix = VG_(clo_fullpath_after)[i];
+               UChar* str    = VG_(strstr)(dirname, prefix);
+               if (str) {
+                  dirname = str + VG_(strlen)(prefix);
+                  break;
+               }
+            }
+            /* remove leading "./" */
+            if (dirname[0] == '.' && dirname[1] == '/')
+               dirname += 2;
+         }
+         // do we have any interesting directory name to show?  If so
+         // add it in.
+         if (dirname && dirname[0] != 0) {
+            APPEND(dirname);
+            APPEND("/");
+         }
          APPEND(buf_srcloc);
          APPEND(":");
          VG_(sprintf)(ibuf,"%d",lineno);
@@ -1821,24 +1928,25 @@ Char* VG_(describe_IP)(Addr eip, Char* buf, Int n_buf)
    a CfiExpr into one convenient struct. */
 typedef
    struct {
-      Addr ipHere;
-      Addr spHere;
-      Addr fpHere;
-      Addr min_accessible;
-      Addr max_accessible;
+      D3UnwindRegs* uregs;
+      Addr          min_accessible;
+      Addr          max_accessible;
    }
    CfiExprEvalContext;
 
 /* Evaluate the CfiExpr rooted at ix in exprs given the context eec.
    *ok is set to False on failure, but not to True on success.  The
    caller must set it to True before calling. */
-static 
+__attribute__((noinline))
+static
 UWord evalCfiExpr ( XArray* exprs, Int ix, 
                     CfiExprEvalContext* eec, Bool* ok )
 {
    UWord wL, wR;
    Addr  a;
-   CfiExpr* e = VG_(indexXA)( exprs, ix );
+   CfiExpr* e;
+   vg_assert(sizeof(Addr) == sizeof(UWord));
+   e = VG_(indexXA)( exprs, ix );
    switch (e->tag) {
       case Cex_Binop:
          wL = evalCfiExpr( exprs, e->Cex.Binop.ixL, eec, ok );
@@ -1855,9 +1963,19 @@ UWord evalCfiExpr ( XArray* exprs, Int ix,
          /*NOTREACHED*/
       case Cex_CfiReg:
          switch (e->Cex.CfiReg.reg) {
-            case Creg_IP: return (Addr)eec->ipHere;
-            case Creg_SP: return (Addr)eec->spHere;
-            case Creg_FP: return (Addr)eec->fpHere;
+#           if defined(VGA_x86) || defined(VGA_amd64)
+            case Creg_IA_IP: return eec->uregs->xip;
+            case Creg_IA_SP: return eec->uregs->xsp;
+            case Creg_IA_BP: return eec->uregs->xbp;
+#           elif defined(VGA_arm)
+            case Creg_ARM_R15: return eec->uregs->r15;
+            case Creg_ARM_R14: return eec->uregs->r14;
+            case Creg_ARM_R13: return eec->uregs->r13;
+            case Creg_ARM_R12: return eec->uregs->r12;
+#           elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#           else
+#             error "Unsupported arch"
+#           endif
             default: goto unhandled;
          }
          /*NOTREACHED*/
@@ -2003,94 +2121,175 @@ static void cfsi_cache__invalidate ( void ) {
 }
 
 
-/* The main function for DWARF2/3 CFI-based stack unwinding.
-   Given an IP/SP/FP triple, produce the IP/SP/FP values for the
-   previous frame, if possible. */
-/* Returns True if OK.  If not OK, *{ip,sp,fp}P are not changed. */
-/* NOTE: this function may rearrange the order of entries in the
-   DebugInfo list. */
-Bool VG_(use_CF_info) ( /*MOD*/Addr* ipP,
-                        /*MOD*/Addr* spP,
-                        /*MOD*/Addr* fpP,
-                        Addr min_accessible,
-                        Addr max_accessible )
+static inline CFSICacheEnt* cfsi_cache__find ( Addr ip )
 {
-   Bool       ok;
-   DebugInfo* di;
-   DiCfSI*    cfsi = NULL;
-   Addr       cfa, ipHere, spHere, fpHere, ipPrev, spPrev, fpPrev;
+   UWord         hash = ip % N_CFSI_CACHE;
+   CFSICacheEnt* ce = &cfsi_cache[hash];
+   static UWord  n_q = 0, n_m = 0;
 
-   CfiExprEvalContext eec;
-
-   static UWord n_q = 0, n_m = 0;
    n_q++;
    if (0 && 0 == (n_q & 0x1FFFFF))
       VG_(printf)("QQQ %lu %lu\n", n_q, n_m);
 
-   { UWord hash = (*ipP) % N_CFSI_CACHE;
-     CFSICacheEnt* ce = &cfsi_cache[hash];
-
-     if (LIKELY(ce->ip == *ipP) && LIKELY(ce->di != NULL)) {
-        /* found an entry in the cache .. */
-     } else {
-        /* not found in cache.  Search and update. */
-        n_m++;
-        ce->ip = *ipP;
-        find_DiCfSI( &ce->di, &ce->ix, *ipP );
-     }
-
-     if (UNLIKELY(ce->di == (DebugInfo*)1)) {
-        /* no DiCfSI for this address */
-        cfsi = NULL;
-        di = NULL;
-     } else {
-        /* found a DiCfSI for this address */
-        di = ce->di;
-        cfsi = &di->cfsi[ ce->ix ];
-     }
+   if (LIKELY(ce->ip == ip) && LIKELY(ce->di != NULL)) {
+      /* found an entry in the cache .. */
+   } else {
+      /* not found in cache.  Search and update. */
+      n_m++;
+      ce->ip = ip;
+      find_DiCfSI( &ce->di, &ce->ix, ip );
    }
 
-   if (UNLIKELY(cfsi == NULL))
+   if (UNLIKELY(ce->di == (DebugInfo*)1)) {
+      /* no DiCfSI for this address */
+      return NULL;
+   } else {
+      /* found a DiCfSI for this address */
+      return ce;
+   }
+}
+
+
+inline
+static Addr compute_cfa ( D3UnwindRegs* uregs,
+                          Addr min_accessible, Addr max_accessible,
+                          DebugInfo* di, DiCfSI* cfsi )
+{
+   CfiExprEvalContext eec;
+   Addr               cfa;
+   Bool               ok;
+
+   /* Compute the CFA. */
+   cfa = 0;
+   switch (cfsi->cfa_how) {
+#     if defined(VGA_x86) || defined(VGA_amd64)
+      case CFIC_IA_SPREL: 
+         cfa = cfsi->cfa_off + uregs->xsp;
+         break;
+      case CFIC_IA_BPREL: 
+         cfa = cfsi->cfa_off + uregs->xbp;
+         break;
+#     elif defined(VGA_arm)
+      case CFIC_ARM_R13REL: 
+         cfa = cfsi->cfa_off + uregs->r13;
+         break;
+      case CFIC_ARM_R12REL: 
+         cfa = cfsi->cfa_off + uregs->r12;
+         break;
+      case CFIC_ARM_R11REL: 
+         cfa = cfsi->cfa_off + uregs->r11;
+         break;
+      case CFIC_ARM_R7REL: 
+         cfa = cfsi->cfa_off + uregs->r7;
+         break;
+#     elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#     else
+#       error "Unsupported arch"
+#     endif
+      case CFIC_EXPR: /* available on all archs */
+         if (0) {
+            VG_(printf)("CFIC_EXPR: ");
+            ML_(ppCfiExpr)(di->cfsi_exprs, cfsi->cfa_off);
+            VG_(printf)("\n");
+         }
+         eec.uregs          = uregs;
+         eec.min_accessible = min_accessible;
+         eec.max_accessible = max_accessible;
+         ok = True;
+         cfa = evalCfiExpr(di->cfsi_exprs, cfsi->cfa_off, &eec, &ok );
+         if (!ok) return 0;
+         break;
+      default: 
+         vg_assert(0);
+   }
+   return cfa;
+}
+
+
+/* Get the call frame address (CFA) given an IP/SP/FP triple. */
+/* NOTE: This function may rearrange the order of entries in the
+   DebugInfo list. */
+Addr ML_(get_CFA) ( Addr ip, Addr sp, Addr fp,
+                    Addr min_accessible, Addr max_accessible )
+{
+   CFSICacheEnt* ce;
+   DebugInfo*    di;
+   DiCfSI*       cfsi;
+
+   ce = cfsi_cache__find(ip);
+
+   if (UNLIKELY(ce == NULL))
+      return 0; /* no info.  Nothing we can do. */
+
+   di = ce->di;
+   cfsi = &di->cfsi[ ce->ix ];
+
+   /* Temporary impedance-matching kludge so that this keeps working
+      on x86-linux and amd64-linux. */
+#  if defined(VGA_x86) || defined(VGA_amd64)
+   { D3UnwindRegs uregs;
+     uregs.xip = ip;
+     uregs.xsp = sp;
+     uregs.xbp = fp;
+     return compute_cfa(&uregs,
+                        min_accessible,  max_accessible, di, cfsi);
+   }
+#  else
+   return 0; /* indicates failure */
+#  endif
+}
+
+
+/* The main function for DWARF2/3 CFI-based stack unwinding.  Given a
+   set of registers in UREGS, modify it to hold the register values
+   for the previous frame, if possible.  Returns True if successful.
+   If not successful, *UREGS is not changed.
+
+   For x86 and amd64, the unwound registers are: {E,R}IP,
+   {E,R}SP, {E,R}BP.
+
+   For arm, the unwound registers are: R7 R11 R12 R13 R14 R15.
+*/
+Bool VG_(use_CF_info) ( /*MOD*/D3UnwindRegs* uregsHere,
+                        Addr min_accessible,
+                        Addr max_accessible )
+{
+   Bool               ok;
+   DebugInfo*         di;
+   DiCfSI*            cfsi = NULL;
+   Addr               cfa, ipHere = 0;
+   CFSICacheEnt*      ce;
+   CfiExprEvalContext eec;
+   D3UnwindRegs       uregsPrev;
+
+#  if defined(VGA_x86) || defined(VGA_amd64)
+   ipHere = uregsHere->xip;
+#  elif defined(VGA_arm)
+   ipHere = uregsHere->r15;
+#  elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#  else
+#    error "Unknown arch"
+#  endif
+   ce = cfsi_cache__find(ipHere);
+
+   if (UNLIKELY(ce == NULL))
       return False; /* no info.  Nothing we can do. */
+
+   di = ce->di;
+   cfsi = &di->cfsi[ ce->ix ];
 
    if (0) {
       VG_(printf)("found cfisi: "); 
       ML_(ppDiCfSI)(di->cfsi_exprs, cfsi);
    }
 
-   ipPrev = spPrev = fpPrev = 0;
-
-   ipHere = *ipP;
-   spHere = *spP;
-   fpHere = *fpP;
+   VG_(bzero_inline)(&uregsPrev, sizeof(uregsPrev));
 
    /* First compute the CFA. */
-   cfa = 0;
-   switch (cfsi->cfa_how) {
-      case CFIC_SPREL: 
-         cfa = cfsi->cfa_off + spHere;
-         break;
-      case CFIC_FPREL: 
-         cfa = cfsi->cfa_off + fpHere;
-         break;
-      case CFIC_EXPR: 
-         if (0) {
-            VG_(printf)("CFIC_EXPR: ");
-            ML_(ppCfiExpr)(di->cfsi_exprs, cfsi->cfa_off);
-            VG_(printf)("\n");
-         }
-         eec.ipHere = ipHere;
-         eec.spHere = spHere;
-         eec.fpHere = fpHere;
-         eec.min_accessible = min_accessible;
-         eec.max_accessible = max_accessible;
-         ok = True;
-         cfa = evalCfiExpr(di->cfsi_exprs, cfsi->cfa_off, &eec, &ok );
-         if (!ok) return False;
-         break;
-      default: 
-         vg_assert(0);
-   }
+   cfa = compute_cfa(uregsHere,
+                     min_accessible, max_accessible, di, cfsi);
+   if (UNLIKELY(cfa == 0))
+      return False;
 
    /* Now we know the CFA, use it to roll back the registers we're
       interested in. */
@@ -2116,9 +2315,7 @@ Bool VG_(use_CF_info) ( /*MOD*/Addr* ipP,
             case CFIR_EXPR:                             \
                if (0)                                   \
                   ML_(ppCfiExpr)(di->cfsi_exprs,_off);  \
-               eec.ipHere = ipHere;                     \
-               eec.spHere = spHere;                     \
-               eec.fpHere = fpHere;                     \
+               eec.uregs = uregsHere;                   \
                eec.min_accessible = min_accessible;     \
                eec.max_accessible = max_accessible;     \
                ok = True;                               \
@@ -2130,15 +2327,25 @@ Bool VG_(use_CF_info) ( /*MOD*/Addr* ipP,
          }                                              \
       } while (0)
 
-   COMPUTE(ipPrev, ipHere, cfsi->ra_how, cfsi->ra_off);
-   COMPUTE(spPrev, spHere, cfsi->sp_how, cfsi->sp_off);
-   COMPUTE(fpPrev, fpHere, cfsi->fp_how, cfsi->fp_off);
+#  if defined(VGA_x86) || defined(VGA_amd64)
+   COMPUTE(uregsPrev.xip, uregsHere->xip, cfsi->ra_how, cfsi->ra_off);
+   COMPUTE(uregsPrev.xsp, uregsHere->xsp, cfsi->sp_how, cfsi->sp_off);
+   COMPUTE(uregsPrev.xbp, uregsHere->xbp, cfsi->bp_how, cfsi->bp_off);
+#  elif defined(VGA_arm)
+   COMPUTE(uregsPrev.r15, uregsHere->r15, cfsi->ra_how,  cfsi->ra_off);
+   COMPUTE(uregsPrev.r14, uregsHere->r14, cfsi->r14_how, cfsi->r14_off);
+   COMPUTE(uregsPrev.r13, uregsHere->r13, cfsi->r13_how, cfsi->r13_off);
+   COMPUTE(uregsPrev.r12, uregsHere->r12, cfsi->r12_how, cfsi->r12_off);
+   COMPUTE(uregsPrev.r11, uregsHere->r11, cfsi->r11_how, cfsi->r11_off);
+   COMPUTE(uregsPrev.r7,  uregsHere->r7,  cfsi->r7_how,  cfsi->r7_off);
+#  elif defined(VGA_ppc32) || defined(VGA_ppc64)
+#  else
+#    error "Unknown arch"
+#  endif
 
 #  undef COMPUTE
 
-   *ipP = ipPrev;
-   *spP = spPrev;
-   *fpP = fpPrev;
+   *uregsHere = uregsPrev;
    return True;
 }
 
@@ -2346,7 +2553,7 @@ static Bool data_address_is_in_var ( /*OUT*/PtrdiffT* offset,
       VG_(printf)("\n");
    }
 
-   if (res.kind == GXR_Value 
+   if (res.kind == GXR_Addr 
        && res.word <= data_addr
        && data_addr < res.word + var_szB) {
       *offset = data_addr - res.word;
@@ -3057,7 +3264,7 @@ void analyse_deps ( /*MOD*/XArray* /* of FrameBlock */ blocks,
    vg_assert(res_sp_6k.kind == res_fp_6k.kind);
    vg_assert(res_sp_6k.kind == res_fp_7k.kind);
 
-   if (res_sp_6k.kind == GXR_Value) {
+   if (res_sp_6k.kind == GXR_Addr) {
       StackBlock block;
       GXResult res;
       UWord sp_delta = res_sp_7k.word - res_sp_6k.word;
@@ -3074,7 +3281,7 @@ void analyse_deps ( /*MOD*/XArray* /* of FrameBlock */ blocks,
          regs.sp = regs.fp = 0;
          regs.ip = ip;
          res = ML_(evaluate_GX)( var->gexpr, var->fbGX, &regs, di );
-         tl_assert(res.kind == GXR_Value);
+         tl_assert(res.kind == GXR_Addr);
          if (debug)
          VG_(printf)("   %5ld .. %5ld (sp) %s\n",
                      res.word, res.word + ((UWord)mul.ul) - 1, var->name);
@@ -3093,7 +3300,7 @@ void analyse_deps ( /*MOD*/XArray* /* of FrameBlock */ blocks,
          regs.sp = regs.fp = 0;
          regs.ip = ip;
          res = ML_(evaluate_GX)( var->gexpr, var->fbGX, &regs, di );
-         tl_assert(res.kind == GXR_Value);
+         tl_assert(res.kind == GXR_Addr);
          if (debug)
          VG_(printf)("   %5ld .. %5ld (FP) %s\n",
                      res.word, res.word + ((UWord)mul.ul) - 1, var->name);
@@ -3308,7 +3515,7 @@ void* /* really, XArray* of GlobalBlock */
             res = ML_(evaluate_trivial_GX)( var->gexpr, di );
 
             /* Not a constant address => not interesting */
-            if (res.kind != GXR_Value) {
+            if (res.kind != GXR_Addr) {
                if (0) VG_(printf)("FAIL\n");
                continue;
             }
@@ -3435,14 +3642,16 @@ void VG_(DebugInfo_syms_getidx) ( const DebugInfo *si,
                                   /*OUT*/Addr*   tocptr,
                                   /*OUT*/UInt*   size,
                                   /*OUT*/HChar** name,
-                                  /*OUT*/Bool*   isText )
+                                  /*OUT*/Bool*   isText,
+                                  /*OUT*/Bool*   isIFunc )
 {
    vg_assert(idx >= 0 && idx < si->symtab_used);
-   if (avma)   *avma   = si->symtab[idx].addr;
-   if (tocptr) *tocptr = si->symtab[idx].tocptr;
-   if (size)   *size   = si->symtab[idx].size;
-   if (name)   *name   = (HChar*)si->symtab[idx].name;
-   if (isText) *isText = si->symtab[idx].isText;
+   if (avma)    *avma    = si->symtab[idx].addr;
+   if (tocptr)  *tocptr  = si->symtab[idx].tocptr;
+   if (size)    *size    = si->symtab[idx].size;
+   if (name)    *name    = (HChar*)si->symtab[idx].name;
+   if (isText)  *isText  = si->symtab[idx].isText;
+   if (isIFunc) *isIFunc = si->symtab[idx].isIFunc;
 }
 
 

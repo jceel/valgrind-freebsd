@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2009 Nicholas Nethercote
+   Copyright (C) 2000-2010 Nicholas Nethercote
       njn@valgrind.org
 
    This program is free software; you can redistribute it and/or
@@ -83,6 +83,9 @@ static VgSchedReturnCode thread_wrapper(Word /*ThreadId*/ tidW)
    VG_TRACK(pre_thread_first_insn, tid);
 
    tst->os_state.lwpid = VG_(gettid)();
+   /* Set the threadgroup for real.  This overwrites the provisional
+      value set in do_clone() syswrap-*-linux.c.  See comments in
+      do_clone for background, also #226116. */
    tst->os_state.threadgroup = VG_(getpid)();
 
    /* Thread created with all signals blocked; scheduler will set the
@@ -195,6 +198,14 @@ static void run_a_thread_NORETURN ( Word tidW )
           : "=m" (tst->status)
           : "r" (vgts_empty), "n" (__NR_exit), "m" (tst->os_state.exitcode));
       }
+#elif defined(VGP_arm_linux)
+      asm volatile (
+         "str  %1, %0\n"      /* set tst->status = VgTs_Empty */
+         "mov  r7, %2\n"      /* set %r7 = __NR_exit */
+         "ldr  r0, %3\n"      /* set %r0 = tst->os_state.exitcode */
+         "svc  0x00000000\n"  /* exit(tst->os_state.exitcode) */
+         : "=m" (tst->status)
+         : "r" (VgTs_Empty), "n" (__NR_exit), "m" (tst->os_state.exitcode));
 #else
 # error Unknown platform
 #endif
@@ -319,7 +330,9 @@ SysRes ML_(do_fork_clone) ( ThreadId tid, UInt flags,
 
    /* Since this is the fork() form of clone, we don't need all that
       VG_(clone) stuff */
-#if defined(VGP_x86_linux) || defined(VGP_ppc32_linux) || defined(VGP_ppc64_linux)
+#if defined(VGP_x86_linux) \
+    || defined(VGP_ppc32_linux) || defined(VGP_ppc64_linux) \
+    || defined(VGP_arm_linux)
    res = VG_(do_syscall5)( __NR_clone, flags, 
                            (UWord)NULL, (UWord)parent_tidptr, 
                            (UWord)NULL, (UWord)child_tidptr );
@@ -378,8 +391,19 @@ SysRes ML_(do_fork_clone) ( ThreadId tid, UInt flags,
 #define PRE(name)       DEFN_PRE_TEMPLATE(linux, name)
 #define POST(name)      DEFN_POST_TEMPLATE(linux, name)
 
-// Combine two 32-bit values into a 64-bit value
+// Macros to support 64-bit syscall args split into two 32 bit values
 #define LOHI64(lo,hi)   ( ((ULong)(lo)) | (((ULong)(hi)) << 32) )
+#if defined(VG_LITTLEENDIAN)
+#define MERGE64(lo,hi)   ( ((ULong)(lo)) | (((ULong)(hi)) << 32) )
+#define MERGE64_FIRST(name) name##_low
+#define MERGE64_SECOND(name) name##_high
+#elif defined(VG_BIGENDIAN)
+#define MERGE64(hi,lo)   ( ((ULong)(lo)) | (((ULong)(hi)) << 32) )
+#define MERGE64_FIRST(name) name##_high
+#define MERGE64_SECOND(name) name##_low
+#else
+#error Unknown endianness
+#endif
 
 /* ---------------------------------------------------------------------
    *mount wrappers
@@ -396,7 +420,8 @@ PRE(sys_mount)
    PRE_REG_READ5(long, "mount",
                  char *, source, char *, target, char *, type,
                  unsigned long, flags, void *, data);
-   PRE_MEM_RASCIIZ( "mount(source)", ARG1);
+   if (ARG1)
+      PRE_MEM_RASCIIZ( "mount(source)", ARG1);
    PRE_MEM_RASCIIZ( "mount(target)", ARG2);
    PRE_MEM_RASCIIZ( "mount(type)", ARG3);
 }
@@ -605,34 +630,39 @@ POST(sys_llseek)
       POST_MEM_WRITE( ARG4, sizeof(vki_loff_t) );
 }
 
-//zz PRE(sys_adjtimex, 0)
-//zz {
-//zz    struct vki_timex *tx = (struct vki_timex *)ARG1;
-//zz    PRINT("sys_adjtimex ( %p )", ARG1);
-//zz    PRE_REG_READ1(long, "adjtimex", struct timex *, buf);
-//zz    PRE_MEM_READ( "adjtimex(timex->modes)", ARG1, sizeof(tx->modes));
-//zz 
-#if 0 //zz  (avoiding warnings about multi-line comments)
-zz #define ADJX(bit,field) 				\
-zz    if (tx->modes & bit)					\
-zz       PRE_MEM_READ( "adjtimex(timex->"#field")",	\
-zz 		    (Addr)&tx->field, sizeof(tx->field))
-#endif
-//zz    ADJX(ADJ_FREQUENCY, freq);
-//zz    ADJX(ADJ_MAXERROR, maxerror);
-//zz    ADJX(ADJ_ESTERROR, esterror);
-//zz    ADJX(ADJ_STATUS, status);
-//zz    ADJX(ADJ_TIMECONST, constant);
-//zz    ADJX(ADJ_TICK, tick);
-//zz #undef ADJX
-//zz    
-//zz    PRE_MEM_WRITE( "adjtimex(timex)", ARG1, sizeof(struct vki_timex));
-//zz }
-//zz 
-//zz POST(sys_adjtimex)
-//zz {
-//zz    POST_MEM_WRITE( ARG1, sizeof(struct vki_timex) );
-//zz }
+PRE(sys_adjtimex)
+{
+   struct vki_timex *tx = (struct vki_timex *)ARG1;
+   PRINT("sys_adjtimex ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "adjtimex", struct timex *, buf);
+   PRE_MEM_READ( "adjtimex(timex->modes)", ARG1, sizeof(tx->modes));
+
+#define ADJX(bits,field) 				\
+   if (tx->modes & (bits))                              \
+      PRE_MEM_READ( "adjtimex(timex->"#field")",	\
+		    (Addr)&tx->field, sizeof(tx->field))
+
+   if (tx->modes & VKI_ADJ_ADJTIME) {
+      if (!(tx->modes & VKI_ADJ_OFFSET_READONLY))
+         PRE_MEM_READ( "adjtimex(timex->offset)", (Addr)&tx->offset, sizeof(tx->offset));
+   } else {
+      ADJX(VKI_ADJ_OFFSET, offset);
+      ADJX(VKI_ADJ_FREQUENCY, freq);
+      ADJX(VKI_ADJ_MAXERROR, maxerror);
+      ADJX(VKI_ADJ_ESTERROR, esterror);
+      ADJX(VKI_ADJ_STATUS, status);
+      ADJX(VKI_ADJ_TIMECONST|VKI_ADJ_TAI, constant);
+      ADJX(VKI_ADJ_TICK, tick);
+   }
+#undef ADJX
+
+   PRE_MEM_WRITE( "adjtimex(timex)", ARG1, sizeof(struct vki_timex));
+}
+
+POST(sys_adjtimex)
+{
+   POST_MEM_WRITE( ARG1, sizeof(struct vki_timex) );
+}
 
 PRE(sys_ioperm)
 {
@@ -907,8 +937,6 @@ PRE(sys_futex)
       break;
    }
 
-   PRE_MEM_READ( "futex(futex)", ARG1, sizeof(Int) );
-
    *flags |= SfMayBlock;
 
    switch(ARG2 & ~(VKI_FUTEX_PRIVATE_FLAG|VKI_FUTEX_CLOCK_REALTIME)) {
@@ -916,6 +944,7 @@ PRE(sys_futex)
    case VKI_FUTEX_LOCK_PI:
    case VKI_FUTEX_WAIT_BITSET:
    case VKI_FUTEX_WAIT_REQUEUE_PI:
+      PRE_MEM_READ( "futex(futex)", ARG1, sizeof(Int) );
       if (ARG4 != 0)
 	 PRE_MEM_READ( "futex(timeout)", ARG4, sizeof(struct vki_timespec) );
       break;
@@ -924,14 +953,18 @@ PRE(sys_futex)
    case VKI_FUTEX_CMP_REQUEUE:
    case VKI_FUTEX_CMP_REQUEUE_PI:
    case VKI_FUTEX_WAKE_OP:
+      PRE_MEM_READ( "futex(futex)", ARG1, sizeof(Int) );
       PRE_MEM_READ( "futex(futex2)", ARG5, sizeof(Int) );
       break;
 
-   case VKI_FUTEX_WAKE:
    case VKI_FUTEX_FD:
-   case VKI_FUTEX_WAKE_BITSET:
    case VKI_FUTEX_TRYLOCK_PI:
    case VKI_FUTEX_UNLOCK_PI:
+      PRE_MEM_READ( "futex(futex)", ARG1, sizeof(Int) );
+     break;
+
+   case VKI_FUTEX_WAKE:
+   case VKI_FUTEX_WAKE_BITSET:
       /* no additional pointers */
       break;
 
@@ -1167,14 +1200,24 @@ POST(sys_eventfd2)
    }
 }
 
-// 64-bit version.
 PRE(sys_fallocate)
 {
    *flags |= SfMayBlock;
+#if VG_WORDSIZE == 4
+   PRINT("sys_fallocate ( %ld, %ld, %lld, %lld )",
+         ARG1, ARG2, MERGE64(ARG3,ARG4), MERGE64(ARG5,ARG6));
+   PRE_REG_READ6(long, "fallocate",
+                 int, fd, int, mode,
+                 unsigned, MERGE64_FIRST(offset), unsigned, MERGE64_SECOND(offset),
+                 unsigned, MERGE64_FIRST(len), unsigned, MERGE64_SECOND(len));
+#elif VG_WORDSIZE == 8
    PRINT("sys_fallocate ( %ld, %ld, %lld, %lld )",
          ARG1, ARG2, (Long)ARG3, (Long)ARG4);
    PRE_REG_READ4(long, "fallocate",
                  int, fd, int, mode, vki_loff_t, offset, vki_loff_t, len);
+#else
+#  error Unexpected word size
+#endif
    if (!ML_(fd_allowed)(ARG1, "fallocate", tid, False))
       SET_STATUS_Failure( VKI_EBADF );
 }
@@ -1286,19 +1329,19 @@ POST(sys_tgkill)
 PRE(sys_fadvise64)
 {
    PRINT("sys_fadvise64 ( %ld, %lld, %lu, %ld )",
-         ARG1, LOHI64(ARG2,ARG3), ARG4, ARG5);
+         ARG1, MERGE64(ARG2,ARG3), ARG4, ARG5);
    PRE_REG_READ5(long, "fadvise64",
-                 int, fd, vki_u32, offset_low, vki_u32, offset_high,
+                 int, fd, vki_u32, MERGE64_FIRST(offset), vki_u32, MERGE64_SECOND(offset),
                  vki_size_t, len, int, advice);
 }
 
 PRE(sys_fadvise64_64)
 {
    PRINT("sys_fadvise64_64 ( %ld, %lld, %lld, %ld )",
-         ARG1, LOHI64(ARG2,ARG3), LOHI64(ARG4,ARG5), ARG6);
+         ARG1, MERGE64(ARG2,ARG3), MERGE64(ARG4,ARG5), ARG6);
    PRE_REG_READ6(long, "fadvise64_64",
-                 int, fd, vki_u32, offset_low, vki_u32, offset_high,
-                 vki_u32, len_low, vki_u32, len_high, int, advice);
+                 int, fd, vki_u32, MERGE64_FIRST(offset), vki_u32, MERGE64_SECOND(offset),
+                 vki_u32, MERGE64_FIRST(len), vki_u32, MERGE64_SECOND(len), int, advice);
 }
 
 /* ---------------------------------------------------------------------
@@ -1399,10 +1442,35 @@ POST(sys_io_getevents)
             if (vev->result > 0)
                POST_MEM_WRITE( cb->aio_buf, vev->result );
             break;
-            
+
          case VKI_IOCB_CMD_PWRITE:
             break;
-           
+
+         case VKI_IOCB_CMD_FSYNC:
+            break;
+
+         case VKI_IOCB_CMD_FDSYNC:
+            break;
+
+         case VKI_IOCB_CMD_PREADV:
+	     if (vev->result > 0) {
+                  struct vki_iovec * vec = (struct vki_iovec *)(Addr)cb->aio_buf;
+                  Int remains = vev->result;
+                  Int j;
+
+                  for (j = 0; j < cb->aio_nbytes; j++) {
+                       Int nReadThisBuf = vec[j].iov_len;
+                       if (nReadThisBuf > remains) nReadThisBuf = remains;
+                       POST_MEM_WRITE( (Addr)vec[j].iov_base, nReadThisBuf );
+                       remains -= nReadThisBuf;
+                       if (remains < 0) VG_(core_panic)("io_getevents(PREADV): remains < 0");
+                  }
+	     }
+             break;
+
+         case VKI_IOCB_CMD_PWRITEV:
+             break;
+
          default:
             VG_(message)(Vg_DebugMsg,
                         "Warning: unhandled io_getevents opcode: %u\n",
@@ -1415,7 +1483,7 @@ POST(sys_io_getevents)
 
 PRE(sys_io_submit)
 {
-   Int i;
+   Int i, j;
 
    PRINT("sys_io_submit ( %llu, %ld, %#lx )", (ULong)ARG1,ARG2,ARG3);
    PRE_REG_READ3(long, "io_submit",
@@ -1425,6 +1493,8 @@ PRE(sys_io_submit)
    if (ARG3 != 0) {
       for (i = 0; i < ARG2; i++) {
          struct vki_iocb *cb = ((struct vki_iocb **)ARG3)[i];
+         struct vki_iovec *iov;
+
          PRE_MEM_READ( "io_submit(iocb)", (Addr)cb, sizeof(struct vki_iocb) );
          switch (cb->aio_lio_opcode) {
          case VKI_IOCB_CMD_PREAD:
@@ -1434,7 +1504,27 @@ PRE(sys_io_submit)
          case VKI_IOCB_CMD_PWRITE:
             PRE_MEM_READ( "io_submit(PWRITE)", cb->aio_buf, cb->aio_nbytes );
             break;
-           
+
+         case VKI_IOCB_CMD_FSYNC:
+            break;
+
+         case VKI_IOCB_CMD_FDSYNC:
+            break;
+
+         case VKI_IOCB_CMD_PREADV:
+            iov = (struct vki_iovec *)(Addr)cb->aio_buf;
+            PRE_MEM_READ( "io_submit(PREADV)", cb->aio_buf, cb->aio_nbytes * sizeof(struct vki_iovec) );
+            for (j = 0; j < cb->aio_nbytes; j++)
+                PRE_MEM_WRITE( "io_submit(PREADV(iov[i]))", (Addr)iov[j].iov_base, iov[j].iov_len );
+            break;
+
+         case VKI_IOCB_CMD_PWRITEV:
+            iov = (struct vki_iovec *)(Addr)cb->aio_buf;
+            PRE_MEM_READ( "io_submit(PWRITEV)", cb->aio_buf, cb->aio_nbytes * sizeof(struct vki_iovec) );
+            for (j = 0; j < cb->aio_nbytes; j++)
+                PRE_MEM_READ( "io_submit(PWRITEV(iov[i]))", (Addr)iov[j].iov_base, iov[j].iov_len );
+            break;
+
          default:
             VG_(message)(Vg_DebugMsg,"Warning: unhandled io_submit opcode: %u\n",
                          cb->aio_lio_opcode);
@@ -1515,6 +1605,24 @@ PRE(sys_inotify_init)
    PRE_REG_READ0(long, "inotify_init");
 }
 POST(sys_inotify_init)
+{
+   vg_assert(SUCCESS);
+   if (!ML_(fd_allowed)(RES, "inotify_init", tid, True)) {
+      VG_(close)(RES);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else {
+      if (VG_(clo_track_fds))
+         ML_(record_fd_open_nameless) (tid, RES);
+   }
+}
+
+PRE(sys_inotify_init1)
+{
+   PRINT("sys_inotify_init ( %ld )", ARG1);
+   PRE_REG_READ1(long, "inotify_init", int, flag);
+}
+
+POST(sys_inotify_init1)
 {
    vg_assert(SUCCESS);
    if (!ML_(fd_allowed)(RES, "inotify_init", tid, True)) {
@@ -1619,7 +1727,7 @@ PRE(sys_mq_timedreceive)
 }
 POST(sys_mq_timedreceive)
 {
-   POST_MEM_WRITE( ARG2, ARG3 );
+   POST_MEM_WRITE( ARG2, RES );
    if (ARG4 != 0)
       POST_MEM_WRITE( ARG4, sizeof(unsigned int) );
 }
@@ -2253,6 +2361,21 @@ PRE(sys_sched_get_priority_min)
    PRE_REG_READ1(long, "sched_get_priority_min", int, policy);
 }
 
+PRE(sys_sched_rr_get_interval)
+{
+   PRINT("sys_sched_rr_get_interval ( %ld, %#lx )", ARG1, ARG2);
+   PRE_REG_READ2(int, "sched_rr_get_interval",
+                 vki_pid_t, pid,
+                 struct vki_timespec *, tp);
+   PRE_MEM_WRITE("sched_rr_get_interval(timespec)",
+                 ARG2, sizeof(struct vki_timespec));
+}
+
+POST(sys_sched_rr_get_interval)
+{
+   POST_MEM_WRITE(ARG2, sizeof(struct vki_timespec));
+}
+
 PRE(sys_sched_setaffinity)
 {
    PRINT("sched_setaffinity ( %ld, %ld, %#lx )", ARG1, ARG2, ARG3);
@@ -2346,6 +2469,21 @@ POST(sys_pipe2)
    }
 }
 
+PRE(sys_dup3)
+{
+   PRINT("sys_dup3 ( %ld, %ld, %ld )", ARG1,ARG2,ARG3);
+   PRE_REG_READ3(long, "dup3", unsigned int, oldfd, unsigned int, newfd, int, flags);
+   if (!ML_(fd_allowed)(ARG2, "dup3", tid, True))
+      SET_STATUS_Failure( VKI_EBADF );
+}
+
+POST(sys_dup3)
+{
+   vg_assert(SUCCESS);
+   if (VG_(clo_track_fds))
+      ML_(record_fd_open_named)(tid, RES);
+}
+
 PRE(sys_quotactl)
 {
    PRINT("sys_quotactl (0x%lx, %#lx, 0x%lx, 0x%lx )", ARG1,ARG2,ARG3, ARG4);
@@ -2376,12 +2514,47 @@ POST(sys_waitid)
 PRE(sys_sync_file_range)
 {
    *flags |= SfMayBlock;
-   PRINT("sys_sync_file_range ( %ld, %ld, %ld, %ld )",
-         ARG1,ARG2,ARG3,ARG4);
+#if VG_WORDSIZE == 4
+   PRINT("sys_sync_file_range ( %ld, %lld, %lld, %ld )",
+         ARG1,MERGE64(ARG2,ARG3),MERGE64(ARG4,ARG5),ARG6);
+   PRE_REG_READ6(long, "sync_file_range",
+                 int, fd,
+                 unsigned, MERGE64_FIRST(offset), unsigned, MERGE64_SECOND(offset),
+                 unsigned, MERGE64_FIRST(nbytes), unsigned, MERGE64_SECOND(nbytes),
+                 unsigned int, flags);
+#elif VG_WORDSIZE == 8
+   PRINT("sys_sync_file_range ( %ld, %lld, %lld, %ld )",
+         ARG1,(Long)ARG2,(Long)ARG3,ARG4);
    PRE_REG_READ4(long, "sync_file_range",
                  int, fd, vki_loff_t, offset, vki_loff_t, nbytes,
                  unsigned int, flags);
+#else
+#  error Unexpected word size
+#endif
    if (!ML_(fd_allowed)(ARG1, "sync_file_range", tid, False))
+      SET_STATUS_Failure( VKI_EBADF );
+}
+
+PRE(sys_sync_file_range2)
+{
+   *flags |= SfMayBlock;
+#if VG_WORDSIZE == 4
+   PRINT("sys_sync_file_range2 ( %ld, %ld, %lld, %lld )",
+         ARG1,ARG2,MERGE64(ARG3,ARG4),MERGE64(ARG5,ARG6));
+   PRE_REG_READ6(long, "sync_file_range2",
+                 int, fd, unsigned int, flags,
+                 unsigned, MERGE64_FIRST(offset), unsigned, MERGE64_SECOND(offset),
+                 unsigned, MERGE64_FIRST(nbytes), unsigned, MERGE64_SECOND(nbytes));
+#elif VG_WORDSIZE == 8
+   PRINT("sys_sync_file_range2 ( %ld, %ld, %lld, %lld )",
+         ARG1,ARG2,(Long)ARG3,(Long)ARG4);
+   PRE_REG_READ4(long, "sync_file_range2",
+                 int, fd, unsigned int, flags,
+                 vki_loff_t, offset, vki_loff_t, nbytes);
+#else
+#  error Unexpected word size
+#endif
+   if (!ML_(fd_allowed)(ARG1, "sync_file_range2", tid, False))
       SET_STATUS_Failure( VKI_EBADF );
 }
 
@@ -2390,6 +2563,53 @@ PRE(sys_stime)
    PRINT("sys_stime ( %#lx )", ARG1);
    PRE_REG_READ1(int, "stime", vki_time_t*, t);
    PRE_MEM_READ( "stime(t)", ARG1, sizeof(vki_time_t) );
+}
+
+PRE(sys_perf_counter_open)
+{
+   PRINT("sys_perf_counter_open ( %#lx, %ld, %ld, %ld, %ld )",
+         ARG1,ARG2,ARG3,ARG4,ARG5);
+   PRE_REG_READ5(long, "perf_counter_open",
+                 struct vki_perf_counter_attr *, attr,
+                 vki_pid_t, pid, int, cpu, int, group_fd,
+                 unsigned long, flags);
+   PRE_MEM_READ( "perf_counter_open(attr)",
+                 ARG1, sizeof(struct vki_perf_counter_attr) );
+}
+
+POST(sys_perf_counter_open)
+{
+   vg_assert(SUCCESS);
+   if (!ML_(fd_allowed)(RES, "perf_counter_open", tid, True)) {
+      VG_(close)(RES);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else {
+      if (VG_(clo_track_fds))
+         ML_(record_fd_open_nameless)(tid, RES);
+   }
+}
+
+PRE(sys_getcpu)
+{
+   PRINT("sys_getcpu ( %#lx, %#lx, %#lx )" , ARG1,ARG2,ARG3);
+   PRE_REG_READ3(int, "getcpu", 
+                 unsigned *, cpu, unsigned *, node, struct vki_getcpu_cache *, tcache);
+   if (ARG1 != 0)
+      PRE_MEM_WRITE( "getcpu(cpu)", ARG1, sizeof(unsigned) );
+   if (ARG2 != 0)
+      PRE_MEM_WRITE( "getcpu(node)", ARG2, sizeof(unsigned) );
+   if (ARG3 != 0)
+      PRE_MEM_WRITE( "getcpu(tcache)", ARG3, sizeof(struct vki_getcpu_cache) );
+}
+
+POST(sys_getcpu)
+{
+   if (ARG1 != 0)
+      POST_MEM_WRITE( ARG1, sizeof(unsigned) );
+   if (ARG2 != 0)
+      POST_MEM_WRITE( ARG2, sizeof(unsigned) );
+   if (ARG3 != 0)
+      POST_MEM_WRITE( ARG3, sizeof(struct vki_getcpu_cache) );
 }
 
 /* ---------------------------------------------------------------------
@@ -2415,6 +2635,29 @@ PRE(sys_lseek)
    PRINT("sys_lseek ( %ld, %ld, %ld )", ARG1,ARG2,ARG3);
    PRE_REG_READ3(vki_off_t, "lseek",
                  unsigned int, fd, vki_off_t, offset, unsigned int, whence);
+}
+
+/* ---------------------------------------------------------------------
+   readahead wrapper
+   ------------------------------------------------------------------ */
+
+PRE(sys_readahead)
+{
+   *flags |= SfMayBlock;
+#if VG_WORDSIZE == 4
+   PRINT("sys_readahead ( %ld, %lld, %ld )", ARG1, MERGE64(ARG2,ARG3), ARG4);
+   PRE_REG_READ4(vki_off_t, "readahead",
+                 int, fd, unsigned, MERGE64_FIRST(offset),
+                 unsigned, MERGE64_SECOND(offset), vki_size_t, count);
+#elif VG_WORDSIZE == 8
+   PRINT("sys_readahead ( %ld, %lld, %ld )", ARG1, (Long)ARG2, ARG3);
+   PRE_REG_READ3(vki_off_t, "readahead",
+                 int, fd, vki_loff_t, offset, vki_size_t, count);
+#else
+#  error Unexpected word size
+#endif
+   if (!ML_(fd_allowed)(ARG1, "readahead", tid, False))
+      SET_STATUS_Failure( VKI_EBADF );
 }
 
 /* ---------------------------------------------------------------------
@@ -2634,11 +2877,26 @@ PRE(sys_rt_sigqueueinfo)
    PRE_REG_READ3(long, "rt_sigqueueinfo", 
                  int, pid, int, sig, vki_siginfo_t *, uinfo);
    if (ARG2 != 0)
-      PRE_MEM_READ( "rt_sigqueueinfo(uinfo)", ARG3, sizeof(vki_siginfo_t) );
+      PRE_MEM_READ( "rt_sigqueueinfo(uinfo)", ARG3, VKI_SI_MAX_SIZE );
 }
 POST(sys_rt_sigqueueinfo)
 {
    if (!ML_(client_signal_OK)(ARG2))
+      SET_STATUS_Failure( VKI_EINVAL );
+}
+
+PRE(sys_rt_tgsigqueueinfo)
+{
+   PRINT("sys_rt_tgsigqueueinfo(%ld, %ld, %ld, %#lx)", ARG1, ARG2, ARG3, ARG4);
+   PRE_REG_READ4(long, "rt_tgsigqueueinfo",
+                 int, tgid, int, pid, int, sig, vki_siginfo_t *, uinfo);
+   if (ARG3 != 0)
+      PRE_MEM_READ( "rt_tgsigqueueinfo(uinfo)", ARG4, VKI_SI_MAX_SIZE );
+}
+
+POST(sys_rt_tgsigqueueinfo)
+{
+   if (!ML_(client_signal_OK)(ARG3))
       SET_STATUS_Failure( VKI_EINVAL );
 }
 
@@ -2963,6 +3221,101 @@ PRE(sys_faccessat)
 }
 
 /* ---------------------------------------------------------------------
+   p{read,write}v wrappers
+   ------------------------------------------------------------------ */
+
+PRE(sys_preadv)
+{
+   Int i;
+   struct vki_iovec * vec;
+   *flags |= SfMayBlock;
+#if VG_WORDSIZE == 4
+   /* Note that the offset argument here is in lo+hi order on both
+      big and little endian platforms... */
+   PRINT("sys_preadv ( %ld, %#lx, %llu, %lld )",ARG1,ARG2,(ULong)ARG3,LOHI64(ARG4,ARG5));
+   PRE_REG_READ5(ssize_t, "preadv",
+                 unsigned long, fd, const struct iovec *, vector,
+                 unsigned long, count, vki_u32, offset_low,
+                 vki_u32, offset_high);
+#elif VG_WORDSIZE == 8
+   PRINT("sys_preadv ( %ld, %#lx, %llu, %lld )",ARG1,ARG2,(ULong)ARG3,(Long)ARG4);
+   PRE_REG_READ4(ssize_t, "preadv",
+                 unsigned long, fd, const struct iovec *, vector,
+                 unsigned long, count, Word, offset);
+#else
+#  error Unexpected word size
+#endif
+   if (!ML_(fd_allowed)(ARG1, "preadv", tid, False)) {
+      SET_STATUS_Failure( VKI_EBADF );
+   } else {
+      PRE_MEM_READ( "preadv(vector)", ARG2, ARG3 * sizeof(struct vki_iovec) );
+
+      if (ARG2 != 0) {
+         /* ToDo: don't do any of the following if the vector is invalid */
+         vec = (struct vki_iovec *)ARG2;
+         for (i = 0; i < (Int)ARG3; i++)
+            PRE_MEM_WRITE( "preadv(vector[...])",
+                           (Addr)vec[i].iov_base, vec[i].iov_len );
+      }
+   }
+}
+
+POST(sys_preadv)
+{
+   vg_assert(SUCCESS);
+   if (RES > 0) {
+      Int i;
+      struct vki_iovec * vec = (struct vki_iovec *)ARG2;
+      Int remains = RES;
+
+      /* RES holds the number of bytes read. */
+      for (i = 0; i < (Int)ARG3; i++) {
+	 Int nReadThisBuf = vec[i].iov_len;
+	 if (nReadThisBuf > remains) nReadThisBuf = remains;
+	 POST_MEM_WRITE( (Addr)vec[i].iov_base, nReadThisBuf );
+	 remains -= nReadThisBuf;
+	 if (remains < 0) VG_(core_panic)("preadv: remains < 0");
+      }
+   }
+}
+
+PRE(sys_pwritev)
+{
+   Int i;
+   struct vki_iovec * vec;
+   *flags |= SfMayBlock;
+#if VG_WORDSIZE == 4
+   /* Note that the offset argument here is in lo+hi order on both
+      big and little endian platforms... */
+   PRINT("sys_pwritev ( %ld, %#lx, %llu, %lld )",ARG1,ARG2,(ULong)ARG3,LOHI64(ARG4,ARG5));
+   PRE_REG_READ5(ssize_t, "pwritev",
+                 unsigned long, fd, const struct iovec *, vector,
+                 unsigned long, count, vki_u32, offset_low,
+                 vki_u32, offset_high);
+#elif VG_WORDSIZE == 8
+   PRINT("sys_pwritev ( %ld, %#lx, %llu, %lld )",ARG1,ARG2,(ULong)ARG3,(Long)ARG4);
+   PRE_REG_READ4(ssize_t, "pwritev",
+                 unsigned long, fd, const struct iovec *, vector,
+                 unsigned long, count, Word, offset);
+#else
+#  error Unexpected word size
+#endif
+   if (!ML_(fd_allowed)(ARG1, "pwritev", tid, False)) {
+      SET_STATUS_Failure( VKI_EBADF );
+   } else {
+      PRE_MEM_READ( "pwritev(vector)", 
+		     ARG2, ARG3 * sizeof(struct vki_iovec) );
+      if (ARG2 != 0) {
+         /* ToDo: don't do any of the following if the vector is invalid */
+         vec = (struct vki_iovec *)ARG2;
+         for (i = 0; i < (Int)ARG3; i++)
+            PRE_MEM_READ( "pwritev(vector[...])",
+                           (Addr)vec[i].iov_base, vec[i].iov_len );
+      }
+   }
+}
+
+/* ---------------------------------------------------------------------
    key retention service wrappers
    ------------------------------------------------------------------ */
 
@@ -3168,6 +3521,30 @@ PRE(sys_delete_module)
 }
 
 /* ---------------------------------------------------------------------
+   splice wrappers
+   ------------------------------------------------------------------ */
+
+PRE(sys_splice)
+{
+   *flags |= SfMayBlock;
+   PRINT("sys_splice ( %ld, %#lx, %ld, %#lx, %ld, %ld )",
+         ARG1,ARG2,ARG3,ARG4,ARG5,ARG6);
+   PRE_REG_READ6(int32_t, "splice",
+                 int, fd_in, vki_loff_t *, off_in,
+                 int, fd_out, vki_loff_t *, off_out,
+                 vki_size_t, len, unsigned int, flags);
+   if (!ML_(fd_allowed)(ARG1, "splice(fd_in)", tid, False) ||
+       !ML_(fd_allowed)(ARG3, "splice(fd_out)", tid, False)) {
+      SET_STATUS_Failure( VKI_EBADF );
+   } else {
+      if (ARG2 != 0)
+         PRE_MEM_READ( "splice(off_in)", ARG2, sizeof(vki_loff_t));
+      if (ARG4 != 0)
+         PRE_MEM_READ( "splice(off_out)", ARG4, sizeof(vki_loff_t));
+   }
+}
+
+/* ---------------------------------------------------------------------
    oprofile-related wrappers
    ------------------------------------------------------------------ */
 
@@ -3175,9 +3552,9 @@ PRE(sys_delete_module)
 PRE(sys_lookup_dcookie)
 {
    PRINT("sys_lookup_dcookie (0x%llx, %#lx, %ld)",
-         LOHI64(ARG1,ARG2), ARG3, ARG4);
+         MERGE64(ARG1,ARG2), ARG3, ARG4);
    PRE_REG_READ4(long, "lookup_dcookie",
-                 vki_u32, cookie_low32, vki_u32, cookie_high32,
+                 vki_u32, MERGE64_FIRST(cookie), vki_u32, MERGE64_SECOND(cookie),
                  char *, buf, vki_size_t, len);
    PRE_MEM_WRITE( "lookup_dcookie(buf)", ARG3, ARG4);
 }
@@ -3228,6 +3605,7 @@ PRE(sys_fcntl)
 
    // These ones use ARG3 as "arg".
    case VKI_F_DUPFD:
+   case VKI_F_DUPFD_CLOEXEC:
    case VKI_F_SETFD:
    case VKI_F_SETFL:
    case VKI_F_SETLEASE:
@@ -3280,6 +3658,15 @@ POST(sys_fcntl)
             ML_(record_fd_open_named)(tid, RES);
       }
    }
+   else if (ARG2 == VKI_F_DUPFD_CLOEXEC) {
+      if (!ML_(fd_allowed)(RES, "fcntl(DUPFD_CLOEXEC)", tid, True)) {
+         VG_(close)(RES);
+         SET_STATUS_Failure( VKI_EMFILE );
+      } else {
+         if (VG_(clo_track_fds))
+            ML_(record_fd_open_named)(tid, RES);
+      }
+   }
 }
 
 // XXX: wrapper only suitable for 32-bit systems
@@ -3300,6 +3687,7 @@ PRE(sys_fcntl64)
 
    // These ones use ARG3 as "arg".
    case VKI_F_DUPFD:
+   case VKI_F_DUPFD_CLOEXEC:
    case VKI_F_SETFD:
    case VKI_F_SETFL:
    case VKI_F_SETLEASE:
@@ -3338,6 +3726,15 @@ POST(sys_fcntl64)
    vg_assert(SUCCESS);
    if (ARG2 == VKI_F_DUPFD) {
       if (!ML_(fd_allowed)(RES, "fcntl64(DUPFD)", tid, True)) {
+         VG_(close)(RES);
+         SET_STATUS_Failure( VKI_EMFILE );
+      } else {
+         if (VG_(clo_track_fds))
+            ML_(record_fd_open_named)(tid, RES);
+      }
+   }
+   else if (ARG2 == VKI_F_DUPFD_CLOEXEC) {
+      if (!ML_(fd_allowed)(RES, "fcntl64(DUPFD_CLOEXEC)", tid, True)) {
          VG_(close)(RES);
          SET_STATUS_Failure( VKI_EMFILE );
       } else {
@@ -3732,6 +4129,7 @@ PRE(sys_ioctl)
    case VKI_SNDCTL_SEQ_NRSYNTHS:
    case VKI_SNDCTL_SEQ_NRMIDIS:
    case VKI_SNDCTL_SEQ_GETTIME:
+   case VKI_SNDCTL_DSP_GETBLKSIZE:
    case VKI_SNDCTL_DSP_GETFMTS:
    case VKI_SNDCTL_DSP_GETTRIGGER:
    case VKI_SNDCTL_DSP_GETODELAY:
@@ -3740,9 +4138,6 @@ PRE(sys_ioctl)
    case VKI_SOUND_PCM_READ_RATE:
    case VKI_SOUND_PCM_READ_CHANNELS:
    case VKI_SOUND_PCM_READ_BITS:
-#if !defined(VGA_ppc32) && !defined(VGA_ppc64)
-   case (VKI_SOUND_PCM_READ_BITS|0x40000000): /* what the fuck ? */
-#endif
    case VKI_SOUND_PCM_READ_FILTER:
       PRE_MEM_WRITE( "ioctl(SNDCTL_XXX|SOUND_XXX (SIOR, int))", 
 		     ARG3, sizeof(int));
@@ -3750,11 +4145,11 @@ PRE(sys_ioctl)
    case VKI_SNDCTL_SEQ_CTRLRATE:
    case VKI_SNDCTL_DSP_SPEED:
    case VKI_SNDCTL_DSP_STEREO:
-   case VKI_SNDCTL_DSP_GETBLKSIZE: 
    case VKI_SNDCTL_DSP_CHANNELS:
    case VKI_SOUND_PCM_WRITE_FILTER:
    case VKI_SNDCTL_DSP_SUBDIVIDE:
    case VKI_SNDCTL_DSP_SETFRAGMENT:
+   case VKI_SNDCTL_DSP_SETFMT:
    case VKI_SNDCTL_DSP_GETCHANNELMASK:
    case VKI_SNDCTL_DSP_BIND_CHANNEL:
    case VKI_SNDCTL_TMR_TIMEBASE:
@@ -3929,7 +4324,7 @@ PRE(sys_ioctl)
       PRE_MEM_WRITE( "ioctl(FIGETBSZ)", ARG3, sizeof(unsigned long));
       break;
    case VKI_FIBMAP:
-      PRE_MEM_READ( "ioctl(FIBMAP)", ARG3, sizeof(unsigned long));
+      PRE_MEM_READ( "ioctl(FIBMAP)", ARG3, sizeof(int));
       break;
 
    case VKI_FBIOGET_VSCREENINFO: /* 0x4600 */
@@ -4470,7 +4865,33 @@ PRE(sys_ioctl)
       break;
 
    default:
-      ML_(PRE_unknown_ioctl)(tid, ARG2, ARG3);
+      /* EVIOC* are variable length and return size written on success */
+      switch (ARG2 & ~(_VKI_IOC_SIZEMASK << _VKI_IOC_SIZESHIFT)) {
+      case VKI_EVIOCGNAME(0):
+      case VKI_EVIOCGPHYS(0):
+      case VKI_EVIOCGUNIQ(0):
+      case VKI_EVIOCGKEY(0):
+      case VKI_EVIOCGLED(0):
+      case VKI_EVIOCGSND(0):
+      case VKI_EVIOCGSW(0):
+      case VKI_EVIOCGBIT(VKI_EV_SYN,0):
+      case VKI_EVIOCGBIT(VKI_EV_KEY,0):
+      case VKI_EVIOCGBIT(VKI_EV_REL,0):
+      case VKI_EVIOCGBIT(VKI_EV_ABS,0):
+      case VKI_EVIOCGBIT(VKI_EV_MSC,0):
+      case VKI_EVIOCGBIT(VKI_EV_SW,0):
+      case VKI_EVIOCGBIT(VKI_EV_LED,0):
+      case VKI_EVIOCGBIT(VKI_EV_SND,0):
+      case VKI_EVIOCGBIT(VKI_EV_REP,0):
+      case VKI_EVIOCGBIT(VKI_EV_FF,0):
+      case VKI_EVIOCGBIT(VKI_EV_PWR,0):
+      case VKI_EVIOCGBIT(VKI_EV_FF_STATUS,0):
+         PRE_MEM_WRITE("ioctl(EVIO*)", ARG3, _VKI_IOC_SIZE(ARG2));
+         break;
+      default:
+         ML_(PRE_unknown_ioctl)(tid, ARG2, ARG3);
+         break;
+      }
       break;
    }   
 }
@@ -4703,7 +5124,9 @@ POST(sys_ioctl)
    case VKI_SNDCTL_SEQ_NRSYNTHS:
    case VKI_SNDCTL_SEQ_NRMIDIS:
    case VKI_SNDCTL_SEQ_GETTIME:
+   case VKI_SNDCTL_DSP_GETBLKSIZE:
    case VKI_SNDCTL_DSP_GETFMTS:
+   case VKI_SNDCTL_DSP_SETFMT:
    case VKI_SNDCTL_DSP_GETTRIGGER:
    case VKI_SNDCTL_DSP_GETODELAY:
    case VKI_SNDCTL_DSP_GETSPDIF:
@@ -4711,16 +5134,12 @@ POST(sys_ioctl)
    case VKI_SOUND_PCM_READ_RATE:
    case VKI_SOUND_PCM_READ_CHANNELS:
    case VKI_SOUND_PCM_READ_BITS:
-#if !defined(VGA_ppc32) && !defined(VGA_ppc64)
-   case (VKI_SOUND_PCM_READ_BITS|0x40000000): /* what the fuck ? */
-#endif
    case VKI_SOUND_PCM_READ_FILTER:
       POST_MEM_WRITE(ARG3, sizeof(int));
       break;
    case VKI_SNDCTL_SEQ_CTRLRATE:
    case VKI_SNDCTL_DSP_SPEED:
    case VKI_SNDCTL_DSP_STEREO:
-   case VKI_SNDCTL_DSP_GETBLKSIZE: 
    case VKI_SNDCTL_DSP_CHANNELS:
    case VKI_SOUND_PCM_WRITE_FILTER:
    case VKI_SNDCTL_DSP_SUBDIVIDE:
@@ -4868,7 +5287,7 @@ POST(sys_ioctl)
       POST_MEM_WRITE(ARG3, sizeof(unsigned long));
       break;
    case VKI_FIBMAP:
-      POST_MEM_WRITE(ARG3, sizeof(unsigned long));
+      POST_MEM_WRITE(ARG3, sizeof(int));
       break;
 
    case VKI_FBIOGET_VSCREENINFO: //0x4600
@@ -5258,7 +5677,34 @@ POST(sys_ioctl)
       break;
 
    default:
-      ML_(POST_unknown_ioctl)(tid, RES, ARG2, ARG3);
+      /* EVIOC* are variable length and return size written on success */
+      switch (ARG2 & ~(_VKI_IOC_SIZEMASK << _VKI_IOC_SIZESHIFT)) {
+      case VKI_EVIOCGNAME(0):
+      case VKI_EVIOCGPHYS(0):
+      case VKI_EVIOCGUNIQ(0):
+      case VKI_EVIOCGKEY(0):
+      case VKI_EVIOCGLED(0):
+      case VKI_EVIOCGSND(0):
+      case VKI_EVIOCGSW(0):
+      case VKI_EVIOCGBIT(VKI_EV_SYN,0):
+      case VKI_EVIOCGBIT(VKI_EV_KEY,0):
+      case VKI_EVIOCGBIT(VKI_EV_REL,0):
+      case VKI_EVIOCGBIT(VKI_EV_ABS,0):
+      case VKI_EVIOCGBIT(VKI_EV_MSC,0):
+      case VKI_EVIOCGBIT(VKI_EV_SW,0):
+      case VKI_EVIOCGBIT(VKI_EV_LED,0):
+      case VKI_EVIOCGBIT(VKI_EV_SND,0):
+      case VKI_EVIOCGBIT(VKI_EV_REP,0):
+      case VKI_EVIOCGBIT(VKI_EV_FF,0):
+      case VKI_EVIOCGBIT(VKI_EV_PWR,0):
+      case VKI_EVIOCGBIT(VKI_EV_FF_STATUS,0):
+         if (RES > 0)
+            POST_MEM_WRITE(ARG3, RES);
+         break;
+      default:
+         ML_(POST_unknown_ioctl)(tid, RES, ARG2, ARG3);
+         break;
+      }
       break;
    }
 }

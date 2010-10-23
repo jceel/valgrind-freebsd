@@ -7,7 +7,7 @@
    This file is part of Lackey, an example Valgrind tool that does
    some simple program measurement and tracing.
 
-   Copyright (C) 2002-2009 Nicholas Nethercote
+   Copyright (C) 2002-2010 Nicholas Nethercote
       njn@valgrind.org
 
    This program is free software; you can redistribute it and/or
@@ -790,16 +790,49 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                was introduced, since prior to that point, the Vex
                front ends would translate a lock-prefixed instruction
                into a (normal) read followed by a (normal) write. */
+            Int    dataSize;
+            IRType dataTy;
+            IRCAS* cas = st->Ist.CAS.details;
+            tl_assert(cas->addr != NULL);
+            tl_assert(cas->dataLo != NULL);
+            dataTy   = typeOfIRExpr(tyenv, cas->dataLo);
+            dataSize = sizeofIRType(dataTy);
+            if (cas->dataHi != NULL)
+               dataSize *= 2; /* since it's a doubleword-CAS */
             if (clo_trace_mem) {
-               Int    dataSize;
-               IRCAS* cas = st->Ist.CAS.details;
-               tl_assert(cas->addr != NULL);
-               tl_assert(cas->dataLo != NULL);
-               dataSize = sizeofIRType(typeOfIRExpr(tyenv, cas->dataLo));
-               if (cas->dataHi != NULL)
-                  dataSize *= 2; /* since it's a doubleword-CAS */
                addEvent_Dr( sbOut, cas->addr, dataSize );
                addEvent_Dw( sbOut, cas->addr, dataSize );
+            }
+            if (clo_detailed_counts) {
+               instrument_detail( sbOut, OpLoad, dataTy );
+               if (cas->dataHi != NULL) /* dcas */
+                  instrument_detail( sbOut, OpLoad, dataTy );
+               instrument_detail( sbOut, OpStore, dataTy );
+               if (cas->dataHi != NULL) /* dcas */
+                  instrument_detail( sbOut, OpStore, dataTy );
+            }
+            addStmtToIRSB( sbOut, st );
+            break;
+         }
+
+         case Ist_LLSC: {
+            IRType dataTy;
+            if (st->Ist.LLSC.storedata == NULL) {
+               /* LL */
+               dataTy = typeOfIRTemp(tyenv, st->Ist.LLSC.result);
+               if (clo_trace_mem)
+                  addEvent_Dr( sbOut, st->Ist.LLSC.addr,
+                                      sizeofIRType(dataTy) );
+               if (clo_detailed_counts)
+                  instrument_detail( sbOut, OpLoad, dataTy );
+            } else {
+               /* SC */
+               dataTy = typeOfIRExpr(tyenv, st->Ist.LLSC.storedata);
+               if (clo_trace_mem)
+                  addEvent_Dw( sbOut, st->Ist.LLSC.addr,
+                                      sizeofIRType(dataTy) );
+               if (clo_detailed_counts)
+                  instrument_detail( sbOut, OpStore, dataTy );
             }
             addStmtToIRSB( sbOut, st );
             break;
@@ -821,7 +854,8 @@ IRSB* lk_instrument ( VgCallbackClosure* closure,
                                           mkIRExprVec_0() );
                else
                   di = unsafeIRDirty_0_N( 0, "add_one_inverted_Jcc",
-                                          VG_(fnptr_to_fnentry)( &add_one_inverted_Jcc ),
+                                          VG_(fnptr_to_fnentry)(
+                                             &add_one_inverted_Jcc ),
                                           mkIRExprVec_0() );
 
                addStmtToIRSB( sbOut, IRStmt_Dirty(di) );
@@ -931,7 +965,7 @@ static void lk_pre_clo_init(void)
    VG_(details_version)         (NULL);
    VG_(details_description)     ("an example Valgrind tool");
    VG_(details_copyright_author)(
-      "Copyright (C) 2002-2009, and GNU GPL'd, by Nicholas Nethercote.");
+      "Copyright (C) 2002-2010, and GNU GPL'd, by Nicholas Nethercote.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 200 );
 

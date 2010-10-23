@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2005-2009 Apple Inc.
+   Copyright (C) 2005-2010 Apple Inc.
       Greg Parker  gparker@apple.com
 
    This program is free software; you can redistribute it and/or
@@ -295,8 +295,8 @@ DECL_TEMPLATE(darwin, getxattr);                // 234
 DECL_TEMPLATE(darwin, fgetxattr);               // 235
 DECL_TEMPLATE(darwin, setxattr);                // 236
 DECL_TEMPLATE(darwin, fsetxattr);               // 237
-// NYI removexattr 238
-// NYI fremovexattr 239
+DECL_TEMPLATE(darwin, removexattr);             // 238
+DECL_TEMPLATE(darwin, fremovexattr);            // 239
 DECL_TEMPLATE(darwin, listxattr);               // 240
 DECL_TEMPLATE(darwin, flistxattr);              // 241
 DECL_TEMPLATE(darwin, fsctl);                   // 242
@@ -334,7 +334,7 @@ DECL_TEMPLATE(darwin, sem_post);                // 273
 // NYI sem_getvalue 274
 DECL_TEMPLATE(darwin, sem_init);                // 275
 DECL_TEMPLATE(darwin, sem_destroy);             // 276
-// NYI open_extended 277
+DECL_TEMPLATE(darwin, open_extended)            // 277
 // NYI umask_extended 278
 DECL_TEMPLATE(darwin, stat_extended);           // 279
 DECL_TEMPLATE(darwin, lstat_extended);          // 280
@@ -393,7 +393,9 @@ DECL_TEMPLATE(darwin, __pthread_markcancel);    // 332
 DECL_TEMPLATE(darwin, __pthread_canceled);      // 333
 DECL_TEMPLATE(darwin, __semwait_signal);        // 334
 // old utrace
-// NYI proc_info 336
+#if DARWIN_VERS >= DARWIN_10_6
+DECL_TEMPLATE(darwin, proc_info);               // 336
+#endif
 DECL_TEMPLATE(darwin, sendfile);                // 337
 DECL_TEMPLATE(darwin, stat64);                  // 338
 DECL_TEMPLATE(darwin, fstat64);                 // 339
@@ -429,7 +431,7 @@ DECL_TEMPLATE(darwin, workq_ops);               // 368
 // 369
 // 370
 // 371
-// 372
+DECL_TEMPLATE(darwin, __thread_selfid);         // 372
 // 373
 // 374
 // 375
@@ -484,6 +486,9 @@ DECL_TEMPLATE(darwin, __mac_syscall);           // 381
 // NYI __mac_mount 424
 // NYI __mac_get_mount 425
 // NYI __mac_getfsstat 426
+DECL_TEMPLATE(darwin, fsgetpath);                // 427
+DECL_TEMPLATE(darwin, audit_session_self);       // 428
+// NYI audit_session_join 429
 
 // Mach message helpers
 DECL_TEMPLATE(darwin, host_info);
@@ -498,9 +503,11 @@ DECL_TEMPLATE(darwin, mach_port_deallocate);
 DECL_TEMPLATE(darwin, mach_port_get_refs);
 DECL_TEMPLATE(darwin, mach_port_mod_refs);
 DECL_TEMPLATE(darwin, mach_port_get_set_status);
+DECL_TEMPLATE(darwin, mach_port_move_member);
 DECL_TEMPLATE(darwin, mach_port_destroy);
 DECL_TEMPLATE(darwin, mach_port_request_notification);
 DECL_TEMPLATE(darwin, mach_port_insert_right);
+DECL_TEMPLATE(darwin, mach_port_extract_right);
 DECL_TEMPLATE(darwin, mach_port_get_attributes);
 DECL_TEMPLATE(darwin, mach_port_set_attributes);
 DECL_TEMPLATE(darwin, mach_port_insert_member);
@@ -537,6 +544,7 @@ DECL_TEMPLATE(darwin, thread_create_running);
 DECL_TEMPLATE(darwin, thread_suspend);
 DECL_TEMPLATE(darwin, thread_get_state);
 DECL_TEMPLATE(darwin, thread_policy);
+DECL_TEMPLATE(darwin, thread_policy_set);
 DECL_TEMPLATE(darwin, thread_info);
 DECL_TEMPLATE(darwin, bootstrap_register);
 DECL_TEMPLATE(darwin, bootstrap_look_up);

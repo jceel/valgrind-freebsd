@@ -2,7 +2,7 @@
 /*
   This file is part of drd, a thread error detector.
 
-  Copyright (C) 2006-2009 Bart Van Assche <bart.vanassche@gmail.com>.
+  Copyright (C) 2006-2010 Bart Van Assche <bvanassche@acm.org>.
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License as
@@ -61,18 +61,20 @@ typedef enum {
    GenericErr     = 11,
 #define STR_InvalidThreadId "InvalidThreadId"
    InvalidThreadId = 12,
-#define STR_UnimpClReq "UnimpClReq"
-   UnimpClReq      = 13,
+#define STR_UnimpHgClReq  "UnimpHgClReq"
+   UnimpHgClReq   = 13,
+#define STR_UnimpDrdClReq "UnimpDrdClReq"
+   UnimpDrdClReq  = 14,
 } DrdErrorKind;
 
 /* The classification of a faulting address. */
-typedef 
-enum { 
+typedef
+enum {
    //Undescribed,   // as-yet unclassified
-   eStack, 
+   eStack,
    eUnknown,       // classification yielded nothing useful
    //Freed,
-   eMallocd, 
+   eMallocd,
    eSegment,       // in a segment (as defined in pub_tool_debuginfo.h)
    //UserG,         // in a user-defined block
    //Mempool,       // in a mempool
@@ -163,6 +165,7 @@ typedef struct {
 
 typedef struct {
    DrdThreadId tid;
+   Addr        addr;
 } GenericErrInfo;
 
 typedef struct {

@@ -9,7 +9,7 @@
    This file is part of LibHB, a library for implementing and checking
    the happens-before relationship in concurrent programs.
 
-   Copyright (C) 2008-2009 OpenWorks Ltd
+   Copyright (C) 2008-2010 OpenWorks Ltd
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -126,7 +126,8 @@ void libhb_Thr_resumes ( Thr* thr );
 /* Set memory address ranges to new (freshly allocated), or noaccess
    (no longer accessible). */
 void libhb_srange_new      ( Thr*, Addr, SizeT );
-void libhb_srange_noaccess ( Thr*, Addr, SizeT );
+void libhb_srange_noaccess ( Thr*, Addr, SizeT ); /* IS IGNORED */
+void libhb_srange_untrack  ( Thr*, Addr, SizeT );
 
 /* For the convenience of callers, we offer to store one void* item in
    a Thr, which we ignore, but the caller can get or set any time. */

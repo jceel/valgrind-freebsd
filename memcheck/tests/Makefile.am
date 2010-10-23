@@ -11,6 +11,13 @@ if VGCONF_ARCHS_INCLUDE_AMD64
 SUBDIRS += amd64
 endif
 
+if VGCONF_ARCHS_INCLUDE_PPC32
+SUBDIRS += ppc32
+endif
+if VGCONF_ARCHS_INCLUDE_PPC64
+SUBDIRS += ppc64
+endif
+
 # OS-specific tests
 if VGCONF_OS_IS_LINUX
 SUBDIRS += linux
@@ -23,12 +30,16 @@ endif
 if VGCONF_PLATFORMS_INCLUDE_X86_LINUX
 SUBDIRS += x86-linux
 endif
+if VGCONF_PLATFORMS_INCLUDE_AMD64_LINUX
+SUBDIRS += amd64-linux
+endif
 
-DIST_SUBDIRS = x86 amd64 linux darwin x86-linux .
+DIST_SUBDIRS = x86 amd64 ppc32 ppc64 linux darwin x86-linux amd64-linux .
 
 dist_noinst_SCRIPTS = \
 	filter_addressable \
 	filter_allocs \
+	filter_leak_cases_possible \
 	filter_stderr filter_xml \
 	filter_varinfo3
 
@@ -42,6 +53,7 @@ EXTRA_DIST = \
 	badaddrvalue.stdout.exp badaddrvalue.vgtest \
 	badfree-2trace.stderr.exp badfree-2trace.vgtest \
 	badfree.stderr.exp badfree.vgtest \
+	badfree3.stderr.exp badfree3.vgtest \
 	badjump.stderr.exp badjump.vgtest \
 	badjump2.stderr.exp badjump2.vgtest \
 	badloop.stderr.exp badloop.vgtest \
@@ -71,6 +83,7 @@ EXTRA_DIST = \
 	inline.stderr.exp inline.stdout.exp inline.vgtest \
 	leak-0.vgtest leak-0.stderr.exp \
 	leak-cases-full.vgtest leak-cases-full.stderr.exp \
+	leak-cases-possible.vgtest leak-cases-possible.stderr.exp \
 	leak-cases-summary.vgtest leak-cases-summary.stderr.exp \
 	leak-cycle.vgtest leak-cycle.stderr.exp \
 	leak-pool-0.vgtest leak-pool-0.stderr.exp \
@@ -158,12 +171,12 @@ EXTRA_DIST = \
 	trivialleak.stderr.exp trivialleak.vgtest \
 	unit_libcbase.stderr.exp unit_libcbase.vgtest \
 	unit_oset.stderr.exp unit_oset.stdout.exp unit_oset.vgtest \
-	varinfo1.vgtest varinfo1.stdout.exp varinfo1.stderr.exp \
-	varinfo2.vgtest varinfo2.stdout.exp varinfo2.stderr.exp \
-	varinfo3.vgtest varinfo3.stdout.exp varinfo3.stderr.exp \
-	varinfo4.vgtest varinfo4.stdout.exp varinfo4.stderr.exp \
-	varinfo5.vgtest varinfo5.stdout.exp varinfo5.stderr.exp \
-	varinfo6.vgtest varinfo6.stdout.exp varinfo6.stderr.exp \
+	varinfo1.vgtest varinfo1.stdout.exp varinfo1.stderr.exp varinfo1.stderr.exp-ppc64\
+	varinfo2.vgtest varinfo2.stdout.exp varinfo2.stderr.exp varinfo2.stderr.exp-ppc64\
+	varinfo3.vgtest varinfo3.stdout.exp varinfo3.stderr.exp varinfo3.stderr.exp-ppc64\
+	varinfo4.vgtest varinfo4.stdout.exp varinfo4.stderr.exp varinfo4.stderr.exp-ppc64\
+	varinfo5.vgtest varinfo5.stdout.exp varinfo5.stderr.exp varinfo5.stderr.exp-ppc64\
+	varinfo6.vgtest varinfo6.stdout.exp varinfo6.stderr.exp varinfo6.stderr.exp-ppc64\
 	vcpu_bz2.stdout.exp vcpu_bz2.stderr.exp vcpu_bz2.vgtest \
 	vcpu_fbench.stdout.exp vcpu_fbench.stderr.exp vcpu_fbench.vgtest \
 	vcpu_fnfns.stdout.exp vcpu_fnfns.stdout.exp-glibc28-amd64 \
@@ -241,6 +254,11 @@ check_PROGRAMS = \
 
 AM_CFLAGS   += $(AM_FLAG_M3264_PRI)
 AM_CXXFLAGS += $(AM_FLAG_M3264_PRI)
+
+if VGCONF_PLATFORMS_INCLUDE_ARM_LINUX
+AM_CFLAGS   += -mfloat-abi=softfp
+AM_CXXFLAGS += -mfloat-abi=softfp
+endif
 
 if VGCONF_OS_IS_DARWIN
 atomic_incs_CFLAGS = $(AM_CFLAGS) -mdynamic-no-pic

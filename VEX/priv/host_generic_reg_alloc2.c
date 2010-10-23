@@ -1,42 +1,31 @@
 
 /*---------------------------------------------------------------*/
-/*---                                                         ---*/
-/*--- This file (host_reg_alloc2.c) is                        ---*/
-/*--- Copyright (C) OpenWorks LLP.  All rights reserved.      ---*/
-/*---                                                         ---*/
+/*--- begin                                 host_reg_alloc2.c ---*/
 /*---------------------------------------------------------------*/
 
 /*
-   This file is part of LibVEX, a library for dynamic binary
-   instrumentation and translation.
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
 
-   Copyright (C) 2004-2009 OpenWorks LLP.  All rights reserved.
+   Copyright (C) 2004-2010 OpenWorks LLP
+      info@open-works.net
 
-   This library is made available under a dual licensing scheme.
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
 
-   If you link LibVEX against other code all of which is itself
-   licensed under the GNU General Public License, version 2 dated June
-   1991 ("GPL v2"), then you may use LibVEX under the terms of the GPL
-   v2, as appearing in the file LICENSE.GPL.  If the file LICENSE.GPL
-   is missing, you can obtain a copy of the GPL v2 from the Free
-   Software Foundation Inc., 51 Franklin St, Fifth Floor, Boston, MA
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
    02110-1301, USA.
 
-   For any other uses of LibVEX, you must first obtain a commercial
-   license from OpenWorks LLP.  Please contact info@open-works.co.uk
-   for information about commercial licensing.
-
-   This software is provided by OpenWorks LLP "as is" and any express
-   or implied warranties, including, but not limited to, the implied
-   warranties of merchantability and fitness for a particular purpose
-   are disclaimed.  In no event shall OpenWorks LLP be liable for any
-   direct, indirect, incidental, special, exemplary, or consequential
-   damages (including, but not limited to, procurement of substitute
-   goods or services; loss of use, data, or profits; or business
-   interruption) however caused and on any theory of liability,
-   whether in contract, strict liability, or tort (including
-   negligence or otherwise) arising in any way out of the use of this
-   software, even if advised of the possibility of such damage.
+   The GNU General Public License is contained in the file COPYING.
 
    Neither the names of the U.S. Department of Energy nor the
    University of California nor the names of its contributors may be
@@ -334,13 +323,15 @@ HInstrArray* doRegisterAllocation (
    /* Apply a reg-reg mapping to an insn. */
    void (*mapRegs) ( HRegRemap*, HInstr*, Bool ),
 
-   /* Return an insn to spill/restore a real reg to a spill slot byte
-      offset.  Also (optionally) a 'directReload' function, which
+   /* Return one, or, if we're unlucky, two insn(s) to spill/restore a
+      real reg to a spill slot byte offset.  The two leading HInstr**
+      args are out parameters, through which the generated insns are
+      returned.  Also (optionally) a 'directReload' function, which
       attempts to replace a given instruction by one which reads
       directly from a specified spill slot.  May be NULL, in which
       case the optimisation is not attempted. */
-   HInstr* (*genSpill) ( HReg, Int, Bool ),
-   HInstr* (*genReload) ( HReg, Int, Bool ),
+   void    (*genSpill)  ( HInstr**, HInstr**, HReg, Int, Bool ),
+   void    (*genReload) ( HInstr**, HInstr**, HReg, Int, Bool ),
    HInstr* (*directReload) ( HInstr*, HReg, Short ),
    Int     guest_sizeB,
 
@@ -830,7 +821,7 @@ HInstrArray* doRegisterAllocation (
       }
 
       /* The spill slots are 64 bits in size.  As per the comment on
-         definition of HRegClass in h_generic_regs.h, that means, to
+         definition of HRegClass in host_generic_regs.h, that means, to
          spill a vreg of class Flt64 or Vec128, we'll need to find two
          adjacent spill slots to use.  Note, this logic needs to kept
          in sync with the size info on the definition of HRegClass. */
@@ -1157,9 +1148,15 @@ HInstrArray* doRegisterAllocation (
             if (vreg_lrs[m].dead_before > ii) {
                vassert(vreg_lrs[m].reg_class != HRcINVALID);
                if ((!eq_spill_opt) || !rreg_state[k].eq_spill_slot) {
-                  EMIT_INSTR( (*genSpill)( rreg_state[k].rreg,
-                                           vreg_lrs[m].spill_offset,
-                                           mode64 ) );
+                  HInstr* spill1 = NULL;
+                  HInstr* spill2 = NULL;
+                  (*genSpill)( &spill1, &spill2, rreg_state[k].rreg,
+                               vreg_lrs[m].spill_offset, mode64 );
+                  vassert(spill1 || spill2); /* can't both be NULL */
+                  if (spill1)
+                     EMIT_INSTR(spill1);
+                  if (spill2)
+                     EMIT_INSTR(spill2);
                }
                rreg_state[k].eq_spill_slot = True;
             }
@@ -1199,7 +1196,7 @@ HInstrArray* doRegisterAllocation (
          in a spill slot, and this is last use of that vreg, see if we
          can convert the instruction into one reads directly from the
          spill slot.  This is clearly only possible for x86 and amd64
-         targets, since ppc is a load-store architecture.  If
+         targets, since ppc and arm load-store architectures.  If
          successful, replace instrs_in->arr[ii] with this new
          instruction, and recompute its reg usage, so that the change
          is invisible to the standard-case handling that follows. */
@@ -1332,9 +1329,15 @@ HInstrArray* doRegisterAllocation (
                indeed needed. */
             if (reg_usage.mode[j] != HRmWrite) {
                vassert(vreg_lrs[m].reg_class != HRcINVALID);
-               EMIT_INSTR( (*genReload)( rreg_state[k].rreg,
-                                         vreg_lrs[m].spill_offset,
-                                         mode64 ) );
+               HInstr* reload1 = NULL;
+               HInstr* reload2 = NULL;
+               (*genReload)( &reload1, &reload2, rreg_state[k].rreg,
+                             vreg_lrs[m].spill_offset, mode64 );
+               vassert(reload1 || reload2); /* can't both be NULL */
+               if (reload1)
+                  EMIT_INSTR(reload1);
+               if (reload2)
+                  EMIT_INSTR(reload2);
                /* This rreg is read or modified by the instruction.
                   If it's merely read we can claim it now equals the
                   spill slot, but not so if it is modified. */
@@ -1409,9 +1412,15 @@ HInstrArray* doRegisterAllocation (
          vassert(vreg_lrs[m].dead_before > ii);
          vassert(vreg_lrs[m].reg_class != HRcINVALID);
          if ((!eq_spill_opt) || !rreg_state[spillee].eq_spill_slot) {
-            EMIT_INSTR( (*genSpill)( rreg_state[spillee].rreg,
-                                     vreg_lrs[m].spill_offset,
-                                     mode64 ) );
+            HInstr* spill1 = NULL;
+            HInstr* spill2 = NULL;
+            (*genSpill)( &spill1, &spill2, rreg_state[spillee].rreg,
+                         vreg_lrs[m].spill_offset, mode64 );
+            vassert(spill1 || spill2); /* can't both be NULL */
+            if (spill1)
+               EMIT_INSTR(spill1);
+            if (spill2)
+               EMIT_INSTR(spill2);
          }
 
          /* Update the rreg_state to reflect the new assignment for this
@@ -1429,9 +1438,15 @@ HInstrArray* doRegisterAllocation (
             written), we have to generate a reload for it. */
          if (reg_usage.mode[j] != HRmWrite) {
             vassert(vreg_lrs[m].reg_class != HRcINVALID);
-            EMIT_INSTR( (*genReload)( rreg_state[spillee].rreg,
-                                      vreg_lrs[m].spill_offset,
-                                      mode64 ) );
+            HInstr* reload1 = NULL;
+            HInstr* reload2 = NULL;
+            (*genReload)( &reload1, &reload2, rreg_state[spillee].rreg,
+                          vreg_lrs[m].spill_offset, mode64 );
+            vassert(reload1 || reload2); /* can't both be NULL */
+            if (reload1)
+               EMIT_INSTR(reload1);
+            if (reload2)
+               EMIT_INSTR(reload2);
             /* This rreg is read or modified by the instruction.
                If it's merely read we can claim it now equals the
                spill slot, but not so if it is modified. */
