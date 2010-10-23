@@ -725,6 +725,14 @@ AC_EGREP_CPP([DARWIN_LIBC], [
 ],
 GLIBC_VERSION="darwin")
 
+AC_EGREP_CPP([FREEBSD_LIBC], [
+#include <sys/cdefs.h>
+#if defined(__FreeBSD__)
+  FREEBSD_LIBC
+#endif
+],
+GLIBC_VERSION="freebsd")
+
 AC_MSG_CHECKING([the GLIBC_VERSION version])
 
 case "${GLIBC_VERSION}" in
@@ -818,15 +826,17 @@ case "${GLIBC_VERSION}" in
 	AC_DEFINE([DARWIN_LIBC], 1, [Define to 1 if you're using Darwin])
 	# DEFAULT_SUPP set by kernel version check above.
 	;;
-
+     freebsd)
+	AC_MSG_RESULT(FreeBSD)
+	AC_DEFINE([FREEBSD_LIBC], 1, [Define to 1 if you're using FreeBSD])
+	# DEFAULT_SUPP set by kernel version check above.
+	;;
      *)
 	AC_MSG_RESULT([unsupported version ${GLIBC_VERSION}])
 	AC_MSG_ERROR([Valgrind requires glibc version 2.2 - 2.12])
 	AC_MSG_ERROR([or AIX 5.1 or 5.2 or 5.3 GLIBC_VERSION])
 	AC_MSG_ERROR([or Darwin libc])
 	;;
-esac
-    ;;
 esac
 
 AC_SUBST(GLIBC_VERSION)
