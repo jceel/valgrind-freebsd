@@ -314,7 +314,6 @@ check_PROGRAMS +=        \
   read_after_free        \
   tsan_unittest
 endif
-endif
 
 if HAVE_OPENMP
 check_PROGRAMS += omp_matinv omp_prime omp_printf
