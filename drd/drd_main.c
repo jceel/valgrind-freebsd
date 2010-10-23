@@ -547,7 +547,7 @@ static void drd_thread_finished(ThreadId vg_tid)
 
 static void DRD_(post_clo_init)(void)
 {
-#if defined(VGO_linux) || defined(VGO_darwin)
+#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
    /* fine */
 #else
    VG_(printf)("\nWARNING: DRD has not yet been tested on this operating system.\n\n");

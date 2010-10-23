@@ -4,6 +4,9 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#if defined(VGO_freebsd)
+# include <sys/fcntl.h>
+#endif
 /* This is really a test of semaphore handling
    (sem_{init,destroy,post,wait}).  Using semaphores a barrier
    function is created.  Helgrind-3.3 (p.k.a Thrcheck) does understand
@@ -222,7 +225,7 @@ static int my_sem_init (sem_t* s, char* identity, int pshared, unsigned count)
 {
 #if defined(VGO_linux)
    return sem_init(s, pshared, count);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
    char name[100];
    sem_t** fakeptr = (sem_t**)s;
    assert(sizeof(sem_t) >= sizeof(sem_t*));
@@ -244,7 +247,7 @@ static int my_sem_destroy ( sem_t* s )
 {
 #if defined(VGO_linux)
    return sem_destroy(s);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
    sem_t** fakeptr = (sem_t**)s;
    return sem_close(*fakeptr);
 #else
@@ -256,7 +259,7 @@ static int my_sem_wait(sem_t* s)
 {
 #if defined(VGO_linux)
   return sem_wait(s);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
   return sem_wait( *(sem_t**)s );
 #else
 #  error "Unsupported OS"
@@ -267,7 +270,7 @@ static int my_sem_post(sem_t* s)
 {
 #if defined(VGO_linux)
   return sem_post(s);
-#elif defined(VGO_darwin)
+#elif defined(VGO_darwin) || defined(VGO_freebsd)
   return sem_post( *(sem_t**)s );
 #else
 #  error "Unsupported OS"

@@ -18,7 +18,7 @@ EXTRA_DIST = \
 	more_x87_fp.stderr.exp more_x87_fp.stdout.exp more_x87_fp.vgtest \
 	sse_memory.stderr.exp sse_memory.stdout.exp sse_memory.vgtest \
 	xor-undef-amd64.stderr.exp xor-undef-amd64.stdout.exp \
-	xor-undef-amd64.vgtest
+	xor-undef-amd64.stderr.exp-freebsd xor-undef-amd64.vgtest
 
 check_PROGRAMS = bt_everything bug132146 fxsave-amd64 \
 		xor-undef-amd64

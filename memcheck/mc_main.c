@@ -1606,7 +1606,6 @@ void make_mem_undefined_w_tid ( Addr a, SizeT len, ThreadId tid ) {
    make_mem_undefined_w_tid_and_okind ( a, len, tid, MC_OKIND_UNKNOWN );
 }
 
-
 void MC_(make_mem_defined) ( Addr a, SizeT len )
 {
    PROF_EVENT(42, "MC_(make_mem_defined)");
@@ -1634,6 +1633,41 @@ static void make_mem_defined_if_addressable ( Addr a, SizeT len )
          } 
       }
    }
+}
+
+static void make_mem_defined_if_unaddressable ( Addr a, SizeT len )
+{
+   SizeT i;
+   UChar vabits2;
+   DEBUG("make_mem_defined_if_unaddressable(%p, %llu)\n", a, (ULong)len);
+   for (i = 0; i < len; i++) {
+      vabits2 = get_vabits2( a+i );
+      if (vabits2 == VA_BITS2_NOACCESS) {
+         set_vabits2(a+i, VA_BITS2_DEFINED);
+         if (UNLIKELY(MC_(clo_mc_level) >= 3)) {
+            MC_(helperc_b_store1)( a+i, 0 ); /* clear the origin tag */
+         } 
+      }
+   }
+}
+
+/* Track changes in the virtual memory space. */
+static void track_perms_change( Addr a, SizeT len,
+                      Bool rr, Bool ww, Bool xx )
+{
+/*
+   if (!(rr || ww))
+      MC_(make_mem_noaccess) ( a, len );
+*/
+   /*
+    * Valgrind's memory management implementation is brain-damaged
+    * so we can't mark memory as unaccessible but defined :-(
+    * Thus we don't alter it if the new bits indicate the range
+    * as unaccessible and only change access bits for unaccessible
+    * bytes if permissions were given
+    */
+   if (rr || ww)
+      make_mem_defined_if_unaddressable ( a, len );
 }
 
 
@@ -5803,7 +5837,7 @@ static void mc_pre_clo_init(void)
    // happen if the program catches the signal, though, which is bad.  If we
    // had two A bits (for readability and writability) that were completely
    // distinct from V bits, then we could handle all this properly.
-   VG_(track_change_mem_mprotect) ( NULL );
+   VG_(track_change_mem_mprotect) ( track_perms_change );
       
    VG_(track_die_mem_stack_signal)( MC_(make_mem_noaccess) ); 
    VG_(track_die_mem_brk)         ( MC_(make_mem_noaccess) );

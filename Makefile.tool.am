@@ -29,6 +29,9 @@ endif
 TOOL_LDFLAGS_COMMON_LINUX = -static \
 	-Wl,-defsym,valt_load_address=@VALT_LOAD_ADDRESS@ \
 	-nodefaultlibs -nostartfiles -u _start
+TOOL_LDFLAGS_COMMON_FREEBSD = -static \
+	-Wl,-defsym,valt_load_address=@VALT_LOAD_ADDRESS@ \
+	-nodefaultlibs -nostartfiles -u _start
 TOOL_LDFLAGS_COMMON_AIX5 = -static -Wl,-e_start_valgrind
 TOOL_LDFLAGS_COMMON_DARWIN = -nodefaultlibs -nostartfiles \
 	-Wl,-u,__start -Wl,-e,__start -Wl,-bind_at_load /usr/lib/dyld
@@ -37,9 +40,17 @@ TOOL_LDFLAGS_X86_LINUX = \
 	$(TOOL_LDFLAGS_COMMON_LINUX) @FLAG_M32@ \
 	-Wl,-T,$(top_builddir)/valt_load_address_x86_linux.lds
 
+TOOL_LDFLAGS_X86_FREEBSD = \
+	$(TOOL_LDFLAGS_COMMON_FREEBSD) @FLAG_M32@ \
+	-Wl,-T,$(top_builddir)/valt_load_address_x86_freebsd.lds
+
 TOOL_LDFLAGS_AMD64_LINUX = \
 	$(TOOL_LDFLAGS_COMMON_LINUX) @FLAG_M64@ \
 	-Wl,-T,$(top_builddir)/valt_load_address_amd64_linux.lds
+
+TOOL_LDFLAGS_AMD64_FREEBSD = \
+	$(TOOL_LDFLAGS_COMMON_FREEBSD) @FLAG_M64@ \
+	-Wl,-T,$(top_builddir)/valt_load_address_amd64_freebsd.lds
 
 TOOL_LDFLAGS_PPC32_LINUX = \
 	$(TOOL_LDFLAGS_COMMON_LINUX) @FLAG_M32@ \
@@ -88,6 +99,14 @@ if VGCONF_PLATFORMS_INCLUDE_PPC64_LINUX
 BUILT_SOURCES += $(top_builddir)/valt_load_address_ppc64_linux.lds
 CLEANFILES    += $(top_builddir)/valt_load_address_ppc64_linux.lds
 endif
+if VGCONF_PLATFORMS_INCLUDE_X86_FREEBSD
+BUILT_SOURCES += $(top_builddir)/valt_load_address_x86_freebsd.lds
+CLEANFILES    += $(top_builddir)/valt_load_address_x86_freebsd.lds
+endif
+if VGCONF_PLATFORMS_INCLUDE_AMD64_FREEBSD
+BUILT_SOURCES += $(top_builddir)/valt_load_address_amd64_freebsd.lds
+CLEANFILES    += $(top_builddir)/valt_load_address_amd64_freebsd.lds
+endif
 if VGCONF_PLATFORMS_INCLUDE_PPC32_AIX5
 # No need to generate $(top_builddir)/valt_load_address*.lds; the final
 # executables can be linked to be at any address.  They will be relocated by
@@ -125,28 +144,42 @@ $(top_builddir)/valt_load_address_x86_linux.lds: Makefile
 	$(CC) @FLAG_M32@ -Wl,--verbose -nostdlib 2>&1 | sed \
 		-e '1,/^=====\+$$/d' \
 		-e '/^=====\+$$/,/.\*/d' \
-		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) + SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
+		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
 	|| rm -f $@
 
 $(top_builddir)/valt_load_address_amd64_linux.lds: Makefile
 	$(CC) -m64 -Wl,--verbose -nostdlib 2>&1 | sed \
 		-e '1,/^=====\+$$/d' \
 		-e '/^=====\+$$/,/.\*/d' \
-		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) + SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
+		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
+	|| rm -f $@
+
+$(top_builddir)/valt_load_address_x86_freebsd.lds: Makefile
+	$(CC) @FLAG_M32@ -Wl,--verbose -nostdlib 2>&1 | sed -E \
+		-e '1,/^=====+$$/d' \
+		-e '/^=====+$$/,/.*/d' \
+		-e '/. = (0x[0-9A-Fa-f]+|SEGMENT_START\("[^"]+", 0x[0-9A-Fa-f]+\)) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]+/valt_load_address/g' > $@ \
+	|| rm -f $@
+
+$(top_builddir)/valt_load_address_amd64_freebsd.lds: Makefile
+	$(CC) -m64 -Wl,--verbose -nostdlib 2>&1 | sed -E \
+		-e '1,/^=====+$$/d' \
+		-e '/^=====+$$/,/.*/d' \
+		-e '/\. = (0x[0-9A-Fa-f]+|SEGMENT_START\("[^"]+", 0x[0-9A-Fa-f]+\)) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]+/valt_load_address/g' > $@ \
 	|| rm -f $@
 
 $(top_builddir)/valt_load_address_ppc32_linux.lds: Makefile
 	$(CC) @FLAG_M32@ -Wl,--verbose -nostdlib 2>&1 | sed \
 		-e '1,/^=====\+$$/d' \
 		-e '/^=====\+$$/,/.\*/d' \
-		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) + SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
+		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
 	|| rm -f $@
 
 $(top_builddir)/valt_load_address_ppc64_linux.lds: Makefile
 	$(CC) -m64 -Wl,--verbose -nostdlib 2>&1 | sed \
 		-e '1,/^=====\+$$/d' \
 		-e '/^=====\+$$/,/.\*/d' \
-		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) + SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
+		-e '/\. = \(0x[0-9A-Fa-f]\+\|SEGMENT_START("[^"]\+", 0x[0-9A-Fa-f]\+)\) \+ SIZEOF_HEADERS/s/0x[0-9A-Fa-f]\+/valt_load_address/g' > $@ \
 	|| rm -f $@
 
 #----------------------------------------------------------------------------
@@ -164,6 +197,12 @@ LIBREPLACEMALLOC_PPC32_LINUX = \
 
 LIBREPLACEMALLOC_PPC64_LINUX = \
 	$(top_builddir)/coregrind/libreplacemalloc_toolpreload-ppc64-linux.a
+
+LIBREPLACEMALLOC_X86_FREEBSD = \
+	$(top_builddir)/coregrind/libreplacemalloc_toolpreload-x86-freebsd.a
+
+LIBREPLACEMALLOC_AMD64_FREEBSD = \
+	$(top_builddir)/coregrind/libreplacemalloc_toolpreload-amd64-freebsd.a
 
 LIBREPLACEMALLOC_PPC32_AIX5 = \
 	$(top_builddir)/coregrind/libreplacemalloc_toolpreload-ppc32-aix5.a
@@ -196,6 +235,16 @@ LIBREPLACEMALLOC_LDFLAGS_PPC32_LINUX = \
 LIBREPLACEMALLOC_LDFLAGS_PPC64_LINUX = \
 	-Wl,--whole-archive \
 	$(LIBREPLACEMALLOC_PPC64_LINUX) \
+	-Wl,--no-whole-archive
+
+LIBREPLACEMALLOC_LDFLAGS_X86_FREEBSD = \
+	-Wl,--whole-archive \
+	$(LIBREPLACEMALLOC_X86_FREEBSD) \
+	-Wl,--no-whole-archive
+
+LIBREPLACEMALLOC_LDFLAGS_AMD64_FREEBSD = \
+	-Wl,--whole-archive \
+	$(LIBREPLACEMALLOC_AMD64_FREEBSD) \
 	-Wl,--no-whole-archive
 
 LIBREPLACEMALLOC_LDFLAGS_PPC32_AIX5 = \

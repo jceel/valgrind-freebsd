@@ -47,6 +47,7 @@
 #include "pub_core_debuginfo.h"  // Needed for pub_core_redir.h
 #include "pub_core_redir.h"      // For VG_NOTIFY_ON_LOAD
 
+#if !defined(VGO_freebsd)
 /* ---------------------------------------------------------------------
    Hook for running __libc_freeres once the program exits.
    ------------------------------------------------------------------ */
@@ -67,6 +68,7 @@ void VG_NOTIFY_ON_LOAD(freeres)( void )
    /*NOTREACHED*/
    *(int *)0 = 'x';
 }
+#endif
 
 #elif defined(VGO_darwin)
 
@@ -152,6 +154,8 @@ void VG_REPLACE_FUNCTION_ZU(libSystemZdZaZddylib, arc4random_addrandom)(unsigned
     // but don't care if it's initialized
 }
 
+#elif defined(VGO_freebsd)
+#   warning "Do something!"
 #else
 
 #  error Unknown OS

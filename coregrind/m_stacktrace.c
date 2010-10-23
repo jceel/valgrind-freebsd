@@ -119,7 +119,7 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
       piece of code is just too confusing and difficult to
       performance-tune.  */
 
-#  if defined(VGP_x86_linux) || defined(VGP_x86_darwin)
+#  if defined(VGP_x86_linux) || defined(VGP_x86_darwin) || defined(VGP_x86_freebsd)
 
    /*--------------------- x86 ---------------------*/
 
@@ -213,7 +213,7 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
       break;
    }
 
-#  elif defined(VGP_amd64_linux)  ||  defined(VGP_amd64_darwin)
+#  elif defined(VGP_amd64_linux)  ||  defined(VGP_amd64_darwin)  ||  defined(VGP_amd64_freebsd)
 
    /*--------------------- amd64 ---------------------*/
 

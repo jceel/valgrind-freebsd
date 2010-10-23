@@ -8,12 +8,17 @@
 
 static char* rip_at_sig = NULL;
 
+
 static void int_handler(int signum, siginfo_t *si, void *uc_arg)
 {
    ucontext_t *uc = (ucontext_t *)uc_arg;
    /* Note that uc->uc_mcontext is an embedded struct, not a pointer */
    mcontext_t *mc = &(uc->uc_mcontext);
+#if defined(__FreeBSD__)
+   void *pc = (void*)mc->mc_rip;
+#else
    void *pc = (void*)mc->gregs[REG_RIP];
+#endif
    printf("in int_handler, RIP is ...\n");
    rip_at_sig = pc;
 }

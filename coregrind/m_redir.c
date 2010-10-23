@@ -962,6 +962,8 @@ void VG_(redir_initialise) ( void )
 
 #  elif defined(VGP_ppc32_aix5)
    /* nothing so far */
+#  elif defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd)
+/* XXX do something real if needed */
 
 #  elif defined(VGP_ppc64_aix5)
    /* nothing so far */

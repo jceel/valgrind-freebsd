@@ -39,6 +39,7 @@ AC_PROG_CXX
 #         AC_SUBST([OBJCFLAGS])
 #        ])
 AC_PROG_RANLIB
+AC_PROG_EGREP
 
 # If no AR variable was specified, look up the name of the archiver. Otherwise
 # do not touch the AR variable.
@@ -54,6 +55,9 @@ fi
 
 # figure out where perl lives
 AC_PATH_PROG(PERL, perl)
+
+# find sed
+AC_PATH_PROG(SED, sed)
 
 # figure out where gdb lives
 AC_PATH_PROG(GDB, gdb, "/no/gdb/was/found/at/configure/time")
@@ -92,7 +96,7 @@ rm $tmpfile
 # We don't want gcc < 3.0
 AC_MSG_CHECKING([for a supported version of gcc])
 
-[gcc_version=`${CC} --version | head -n 1 | sed 's/^[^0-9]*\([0-9.]*\).*$/\1/'`]
+[gcc_version=`${CC} --version | head -n 1 | ${SED} 's/^[^0-9]*\([0-9.]*\).*$/\1/'`]
 
 case "${gcc_version}" in
      2.*)
@@ -126,7 +130,7 @@ case "${host_cpu}" in
         ARCH_MAX="x86"
         ;;
 
-     x86_64) 
+     x86_64|amd64) 
         AC_MSG_RESULT([ok (${host_cpu})])
         ARCH_MAX="amd64"
         ;;
@@ -242,6 +246,7 @@ case "${host_os}" in
      *freebsd*)
         AC_MSG_RESULT([ok (${host_os})])
         VGCONF_OS="freebsd"
+	DEFAULT_SUPP="freebsd.supp ${DEFAULT_SUPP}"
         ;;
 
      *darwin*)
@@ -428,6 +433,37 @@ case "$ARCH_MAX-$VGCONF_OS" in
         valt_load_address_inner="0x28000000"
         AC_MSG_RESULT([ok (${ARCH_MAX}-${VGCONF_OS})])
 	;;
+     x86-freebsd)
+        VGCONF_ARCH_PRI="x86"
+        VGCONF_ARCH_SEC=""
+	VGCONF_PLATFORM_PRI_CAPS="X86_FREEBSD"
+	VGCONF_PLATFORM_SEC_CAPS=""
+        valt_load_address_normal="0x38000000"
+        valt_load_address_inner="0x28000000"
+        AC_MSG_RESULT([ok (${ARCH_MAX}-${VGCONF_OS})])
+	;;
+     amd64-freebsd)
+	if test x$vg_cv_only64bit = xyes; then
+           VGCONF_ARCH_PRI="amd64"
+           VGCONF_ARCH_SEC=""
+	   VGCONF_PLATFORM_PRI_CAPS="AMD64_FREEBSD"
+	   VGCONF_PLATFORM_SEC_CAPS=""
+	elif test x$vg_cv_only32bit = xyes; then
+	   VGCONF_ARCH_PRI="x86"
+           VGCONF_ARCH_SEC=""
+	   VGCONF_PLATFORM_PRI_CAPS="X86_FREEBSD"
+	   VGCONF_PLATFORM_SEC_CAPS=""
+	else
+           VGCONF_ARCH_PRI="amd64"
+           VGCONF_ARCH_SEC="x86"
+	   VGCONF_PLATFORM_PRI_CAPS="AMD64_FREEBSD"
+	   VGCONF_PLATFORM_SEC_CAPS="X86_FREEBSD"
+	fi
+        FLAG_32ON64="-B/usr/lib32"
+        valt_load_address_normal="0x38000000"
+        valt_load_address_inner="0x28000000"
+        AC_MSG_RESULT([ok (${ARCH_MAX}-${VGCONF_OS})])
+	;;
      x86-darwin)
         VGCONF_ARCH_PRI="x86"
         VGCONF_ARCH_SEC=""
@@ -476,10 +512,13 @@ esac
 AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_X86,   
                test x$VGCONF_PLATFORM_PRI_CAPS = xX86_LINUX \
                  -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_LINUX \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD \
+                 -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_FREEBSD \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xX86_DARWIN \
                  -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_DARWIN )
 AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_AMD64, 
                test x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_LINUX \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_FREEBSD \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_DARWIN )
 AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_PPC32, 
                test x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_LINUX \ 
@@ -503,6 +542,12 @@ AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_PPC32_LINUX,
 AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_PPC64_LINUX, 
                test x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_LINUX)
 
+AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_X86_FREEBSD,   
+               test x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD \
+                 -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_FREEBSD)
+AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_AMD64_FREEBSD, 
+               test x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_FREEBSD)
+
 AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_PPC32_AIX5, 
                test x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_AIX5 \ 
                  -o x$VGCONF_PLATFORM_SEC_CAPS = xPPC32_AIX5)
@@ -524,6 +569,11 @@ AM_CONDITIONAL(VGCONF_OS_IS_LINUX,
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_LINUX \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_LINUX \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_LINUX)
+AM_CONDITIONAL(VGCONF_OS_IS_FREEBSD,
+               test x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_FREEBSD \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_FREEBSD \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_FREEBSD)
 AM_CONDITIONAL(VGCONF_OS_IS_AIX5,
                test x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_AIX5 \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_AIX5)
@@ -564,6 +614,8 @@ fi
 # This variable will collect the suppression files to be used.
 AC_SUBST(DEFAULT_SUPP)
 
+case "$VG_OS" in
+    linux)
 GLIBC_VERSION=""
 
 AC_EGREP_CPP([GLIBC_22], [
@@ -759,6 +811,8 @@ case "${GLIBC_VERSION}" in
 	AC_MSG_ERROR([or AIX 5.1 or 5.2 or 5.3 GLIBC_VERSION])
 	AC_MSG_ERROR([or Darwin libc])
 	;;
+esac
+    ;;
 esac
 
 AC_SUBST(GLIBC_VERSION)
@@ -1016,13 +1070,13 @@ AC_MSG_RESULT([no])
 AC_MSG_CHECKING([if gcc accepts -m32])
 
 safe_CFLAGS=$CFLAGS
-CFLAGS="-m32"
+CFLAGS="${FLAG_32ON64} -m32"
 
 AC_TRY_COMPILE(, [
   return 0;
 ],
 [
-FLAG_M32="-m32"
+FLAG_M32="${FLAG_32ON64} -m32"
 AC_MSG_RESULT([yes])
 ], [
 FLAG_M32=""
@@ -1516,6 +1570,8 @@ AC_TYPE_SIGNAL
 
 AC_CHECK_LIB([rt], [clock_gettime])
 
+safe_CFLAGS=$CFLAGS
+CFLAGS="${CFLAGS} -pthread"
 AC_CHECK_FUNCS([     \
         clock_gettime\
         epoll_create \
@@ -1546,6 +1602,7 @@ AC_CHECK_FUNCS([     \
         timerfd      \
         utimensat    \
         ])
+CFLAGS=$safe_CFLAGS
 
 # AC_CHECK_LIB adds any library found to the variable LIBS, and links these
 # libraries with any shared object and/or executable. This is NOT what we
@@ -1577,10 +1634,12 @@ fi
 
 mflag_primary=
 if test x$VGCONF_PLATFORM_PRI_CAPS = xX86_LINUX \
-     -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_LINUX ; then
+     -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_LINUX \
+     -o x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD ; then
   mflag_primary=$FLAG_M32
 elif test x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_LINUX \
-       -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_LINUX ; then
+       -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_LINUX \
+       -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_FREEBSD ; then
   mflag_primary=$FLAG_M64
 elif test x$VGCONF_PLATFORM_PRI_CAPS = xPPC32_AIX5 ; then
   mflag_primary=-q32
@@ -1590,7 +1649,8 @@ fi
 
 mflag_secondary=
 if test x$VGCONF_PLATFORM_SEC_CAPS = xX86_LINUX \
-     -o x$VGCONF_PLATFORM_SEC_CAPS = xPPC32_LINUX ; then
+     -o x$VGCONF_PLATFORM_SEC_CAPS = xPPC32_LINUX \
+     -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_FREEBSD ; then
   mflag_secondary=$FLAG_M32
 elif test x$VGCONF_PLATFORM_SEC_CAPS = xPPC32_AIX5 ; then
   mflag_secondary=-q32

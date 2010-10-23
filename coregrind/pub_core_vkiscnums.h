@@ -70,6 +70,9 @@
 #if defined(VGO_linux)
    // Nothing
 
+#elif defined(VGO_freebsd)
+   // Nothing
+
 #elif defined(VGO_aix5)
 /* Bind the given syscall name to the given number.  Returns True if
    successful, False if the name is unknown. */

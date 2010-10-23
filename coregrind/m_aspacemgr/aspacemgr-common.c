@@ -37,6 +37,7 @@
    ************************************************************* */
 
 #include "priv_aspacemgr.h"
+#include "pub_core_libcassert.h"
 
 
 /*-----------------------------------------------------------------*/
@@ -172,14 +173,23 @@ SysRes VG_(am_do_mmap_NO_NOTIFY)( Addr start, SizeT length, UInt prot,
    }
    res = VG_(do_syscall6)(__NR_mmap, (UWord)start, length,
                           prot, flags, (UInt)fd, offset);
+#  elif defined(VGP_x86_freebsd)
+   if (flags & VKI_MAP_ANONYMOUS && fd == 0)
+      fd = -1;
+   res = VG_(do_syscall7)(__NR_mmap, (UWord)start, length,
+			  prot, flags, fd, offset, offset >> 32ul);
+#  elif defined(VGP_amd64_freebsd)
+   if (flags & VKI_MAP_ANONYMOUS && fd == 0)
+      fd = -1;
+   res = VG_(do_syscall6)(__NR_mmap, (UWord)start, length,
+			  prot, flags, fd, offset);
 #  else
 #    error Unknown platform
 #  endif
    return res;
 }
 
-static
-SysRes local_do_mprotect_NO_NOTIFY(Addr start, SizeT length, UInt prot)
+SysRes VG_(am_do_mprotect_NO_NOTIFY)(Addr start, SizeT length, UInt prot)
 {
    return VG_(do_syscall3)(__NR_mprotect, (UWord)start, length, prot );
 }
@@ -212,6 +222,10 @@ SysRes ML_(am_do_extend_mapping_NO_NOTIFY)(
    ML_(am_barf)("ML_(am_do_extend_mapping_NO_NOTIFY) on AIX5");
    /* NOTREACHED, but gcc doesn't understand that */
    return VG_(mk_SysRes_Error)(0);
+#  elif defined(VGO_freebsd)
+   ML_(am_barf)("ML_(am_do_extend_mapping_NO_NOTIFY) on FreeBSD");
+   /* NOTREACHED, but gcc doesn't understand that */
+   return VG_(mk_SysRes_Error)(0);
 #  else
 #    error Unknown OS
 #  endif
@@ -235,6 +249,10 @@ SysRes ML_(am_do_relocate_nooverlap_mapping_NO_NOTIFY)(
           );
 #  elif defined(VGO_aix5)
    ML_(am_barf)("ML_(am_do_relocate_nooverlap_mapping_NO_NOTIFY) on AIX5");
+   /* NOTREACHED, but gcc doesn't understand that */
+   return VG_(mk_SysRes_Error)(0);
+#  elif defined(VGO_freebsd)
+   ML_(am_barf)("ML_(am_do_relocate_nooverlap_mapping_NO_NOTIFY) on FreeBSD");
    /* NOTREACHED, but gcc doesn't understand that */
    return VG_(mk_SysRes_Error)(0);
 #  else
@@ -272,7 +290,7 @@ Int ML_(am_readlink)(HChar* path, HChar* buf, UInt bufsiz)
 
 Int ML_(am_fcntl) ( Int fd, Int cmd, Addr arg )
 {
-#  if defined(VGO_linux) || defined(VGO_aix5)
+#  if defined(VGO_linux) || defined(VGO_aix5) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall3)(__NR_fcntl, fd, cmd, arg);
 #  elif defined(VGO_darwin)
    SysRes res = VG_(do_syscall3)(__NR_fcntl_nocancel, fd, cmd, arg);
@@ -313,6 +331,11 @@ Bool ML_(am_get_fd_d_i_m)( Int fd,
    return False;
 }
 
+#if defined(VGO_freebsd)
+#define	M_FILEDESC_BUF	1000000
+static Char filedesc_buf[M_FILEDESC_BUF];
+#endif
+   
 Bool ML_(am_resolve_filename) ( Int fd, /*OUT*/HChar* buf, Int nbuf )
 {
 #if defined(VGO_linux)
@@ -325,6 +348,37 @@ Bool ML_(am_resolve_filename) ( Int fd, /*OUT*/HChar* buf, Int nbuf )
    else
       return False;
 
+#elif defined(VGO_freebsd)
+   Int mib[4];
+   SysRes sres;
+   vki_size_t len;
+   Char *bp, *eb;
+   struct vki_kinfo_file *kf;
+
+   mib[0] = VKI_CTL_KERN;
+   mib[1] = VKI_KERN_PROC;
+   mib[2] = VKI_KERN_PROC_FILEDESC;
+   mib[3] = sr_Res(VG_(do_syscall0)(__NR_getpid));
+   len = sizeof(filedesc_buf);
+   sres = VG_(do_syscall6)(__NR___sysctl, (UWord)mib, 4, (UWord)filedesc_buf,
+      (UWord)&len, 0, 0);
+   if (sr_isError(sres)) {
+       VG_(debugLog)(0, "sysctl(kern.proc.filedesc)", "%s\n", VG_(strerror)(sr_Err(sres)));
+       ML_(am_exit)(1);
+   }
+   /* Walk though the list. */
+   bp = filedesc_buf;
+   eb = filedesc_buf + len;
+   while (bp < eb) {
+      kf = (struct vki_kinfo_file *)bp;
+      if (kf->kf_fd == fd)
+         break;
+      bp += kf->kf_structsize;
+   }
+   if (bp >= eb || *kf->kf_path == '\0')
+      return False;
+   VG_(strncpy)( buf, kf->kf_path, nbuf );
+   return True;
 #elif defined(VGO_aix5)
    I_die_here; /* maybe just return False? */
    return False;
@@ -382,7 +436,7 @@ VgStack* VG_(am_alloc_VgStack)( /*OUT*/Addr* initial_sp )
    aspacem_assert(VG_IS_PAGE_ALIGNED(stack));
 
    /* Protect the guard areas. */
-   sres = local_do_mprotect_NO_NOTIFY( 
+   sres = VG_(am_do_mprotect_NO_NOTIFY)( 
              (Addr) &stack[0], 
              VG_STACK_GUARD_SZB, VKI_PROT_NONE 
           );
@@ -392,7 +446,7 @@ VgStack* VG_(am_alloc_VgStack)( /*OUT*/Addr* initial_sp )
       VG_STACK_GUARD_SZB, VKI_PROT_NONE 
    );
 
-   sres = local_do_mprotect_NO_NOTIFY( 
+   sres = VG_(am_do_mprotect_NO_NOTIFY)( 
              (Addr) &stack->bytes[VG_STACK_GUARD_SZB + VG_STACK_ACTIVE_SZB], 
              VG_STACK_GUARD_SZB, VKI_PROT_NONE 
           );

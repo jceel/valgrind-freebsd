@@ -56,6 +56,11 @@ extern Char* VG_(sysnum_string_extra)(Word sysnum, SizeT n_buf, Char* buf);
 #if defined(VGO_linux)
    // Nothing.
 
+#elif defined(VGO_freebsd)
+   // See the FreeBSD-specific case in pub_tool_vkiscnums_asm.h for an
+   // explanation of why we include this here rather than there.
+#  include "vki/vki-scnums-freebsd.h"
+
 #elif defined(VGO_aix5)
    // See the AIX5-specific case in pub_tool_vkiscnums_asm.h for an
    // explanation of why we include this here rather than there.

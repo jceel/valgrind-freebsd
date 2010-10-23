@@ -56,6 +56,14 @@
 extern void VG_(trampoline_stuff_start);
 extern void VG_(trampoline_stuff_end);
 
+#if defined(VGP_x86_freebsd)
+extern void VG_(x86_freebsd_SUBST_FOR_sigreturn);
+#endif
+
+#if defined(VGP_amd64_freebsd)
+extern void VG_(amd64_freebsd_SUBST_FOR_sigreturn);
+#endif
+
 #if defined(VGP_x86_linux)
 extern void VG_(x86_linux_SUBST_FOR_sigreturn);
 extern void VG_(x86_linux_SUBST_FOR_rt_sigreturn);

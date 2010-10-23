@@ -280,7 +280,9 @@ endif
 
 if HAVE_BUILTIN_ATOMIC
 check_PROGRAMS += annotate_rwlock atomic_var circular_buffer
+if !VGCONF_OS_IS_FREEBSD
 check_PROGRAMS += tsan_unittest
+endif
 endif
 
 if HAVE_OPENMP

@@ -78,6 +78,8 @@ typedef Int ArenaId;
 #elif defined(VGP_amd64_linux) || \
       defined(VGP_ppc64_linux) || \
       defined(VGP_ppc64_aix5)  || \
+      defined(VGP_x86_freebsd) || \
+      defined(VGP_amd64_freebsd) || \
       defined(VGP_x86_darwin)  || \
       defined(VGP_amd64_darwin)
 #  define VG_MIN_MALLOC_SZB       16

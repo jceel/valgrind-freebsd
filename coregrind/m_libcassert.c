@@ -45,7 +45,7 @@
    Assertery.
    ------------------------------------------------------------------ */
 
-#if defined(VGP_x86_linux)  ||  defined(VGP_x86_darwin)
+#if defined(VGP_x86_linux)  ||  defined(VGP_x86_darwin)  ||  defined(VGP_x86_freebsd)
 #  define GET_REAL_PC_SP_AND_FP(pc, sp, fp)      \
       asm("call 0f;" \
           "0: popl %0;" \
@@ -54,7 +54,7 @@
           : "=r" (pc),\
             "=r" (sp),\
             "=r" (fp));
-#elif defined(VGP_amd64_linux)  ||  defined(VGP_amd64_darwin)
+#elif defined(VGP_amd64_linux)  ||  defined(VGP_amd64_darwin)  ||  defined(VGP_amd64_freebsd)
 #  define GET_REAL_PC_SP_AND_FP(pc, sp, fp)      \
       asm("leaq 0(%%rip), %0;" \
           "movq %%rsp, %1;" \
@@ -101,7 +101,7 @@ void VG_(exit)( Int status )
 {
 #if defined(VGO_linux)
    (void)VG_(do_syscall1)(__NR_exit_group, status );
-#elif defined(VGO_aix5) || defined(VGO_darwin)
+#elif defined(VGO_aix5) || defined(VGO_darwin) || defined(VGO_freebsd)
    (void)VG_(do_syscall1)(__NR_exit, status );
 #else
 #  error Unknown OS

@@ -2448,6 +2448,10 @@ static void setup_post_syscall_table ( void )
       ADD(1, __NR_ipc); /* ppc{32,64}-linux horrors */
 #     endif
 
+   /* --------------- FreeBSD ------------- */
+
+#  elif defined(VGO_freebsd)
+
    /* --------------- AIX5 --------------- */
 
 #  elif defined(VGO_aix5)
@@ -2518,7 +2522,7 @@ void h_post_syscall ( ThreadId tid, UInt sysno,
    n = VG_(sizeXA)( post_syscall_table );
    for (i = 0; i < n; i++) {
       pair = VG_(indexXA)( post_syscall_table, i );
-#     if defined(VGO_linux) || defined(VGO_darwin)
+#     if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
       if (pair->uw1 == (UWord)sysno)
          break;
 #     elif defined(VGO_aix5)

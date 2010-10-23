@@ -33,6 +33,8 @@
 #include "pub_core_threadstate.h"
 #include "pub_core_libcassert.h"
 #include "pub_core_libcbase.h"
+#include "pub_core_libcproc.h"
+#include "pub_core_libcprint.h"
 #include "pub_core_machine.h"
 #include "pub_core_cpuid.h"
 #include "pub_core_libcsignal.h"   // for ppc32 messing with SIGILL and SIGFPE
@@ -101,6 +103,14 @@ void VG_(set_syscall_return_shadows) ( ThreadId tid,
    VG_(threads)[tid].arch.vex_shadow2.guest_GPR4 = s2err;
 #  elif defined(VGO_darwin)
    // GrP fixme darwin syscalls may return more values (2 registers plus error)
+#  elif defined(VGP_x86_freebsd)
+   VG_(threads)[tid].arch.vex_shadow1.guest_EAX = s1res;
+   VG_(threads)[tid].arch.vex_shadow2.guest_EAX = s2res;
+   /* QQQ: this is very incomplete.  EDX and EFL are affected */
+#  elif defined(VGP_amd64_freebsd)
+   VG_(threads)[tid].arch.vex_shadow1.guest_RAX = s1res;
+   VG_(threads)[tid].arch.vex_shadow2.guest_RAX = s2res;
+   /* QQQ: this is very incomplete.  EDX and EFL are affected */
 #  else
 #    error "Unknown plat"
 #  endif
@@ -375,6 +385,20 @@ Bool VG_(machine_get_hwcaps)( void )
      if (!have_cx8)
         return False;
 
+#if defined(VGP_x86_freebsd)
+     if (have_sse1 || have_sse2) {
+	Int sc, error;
+	vki_size_t scl;
+	/* Regardless of whether cpuid says, the OS has to enable SSE first! */
+	scl = sizeof(sc);
+	error = VG_(sysctlbyname)("hw.instruction_sse", &sc, &scl, 0, 0);
+	if (error == -1 || sc != 1) {
+	    have_sse1 = 0;
+	    have_sse2 = 0;
+	    VG_(message)(Vg_UserMsg, "Warning: cpu has SSE, but the OS has not enabled it.  Disabling in valgrind!");
+	}
+     }
+#endif
      if (have_sse2 && have_sse1) {
         va          = VexArchX86;
         vai.hwcaps  = VEX_HWCAPS_X86_SSE1;
@@ -712,7 +736,8 @@ void VG_(machine_get_VexArchInfo)( /*OUT*/VexArch* pVa,
 void* VG_(fnptr_to_fnentry)( void* f )
 {
 #if defined(VGP_x86_linux)   || defined(VGP_amd64_linux) || \
-    defined(VGP_ppc32_linux) || defined(VGO_darwin)
+    defined(VGP_ppc32_linux) || defined(VGO_darwin) || \
+    defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd)
    return f;
 #elif defined(VGP_ppc64_linux) || defined(VGP_ppc32_aix5) \
                                || defined(VGP_ppc64_aix5)
