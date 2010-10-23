@@ -532,6 +532,7 @@ Bool VG_(machine_get_hwcaps)( void )
 	    have_sse2 = 0;
 	    VG_(message)(Vg_UserMsg, "Warning: cpu has SSE, but the OS has not enabled it.  Disabling in valgrind!");
 	}
+     }
 #endif
      /* Figure out if this is an AMD that can do LZCNT. */
      have_lzcnt = False;
