@@ -533,6 +533,11 @@ typedef struct SigQueue {
       VG_(mk_SysRes_x86_freebsd)( (uc)->uc_mcontext.eax, \
 	 (uc)->uc_mcontext.edx, ((uc)->uc_mcontext.eflags & 1) != 0 ? True : False)
 #  define VG_UCONTEXT_LINK_REG(uc)        0 /* What is an LR for anyway? */
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)        \
+      { (srP)->r_pc = (ULong)((uc)->uc_mcontext.eip);    \
+        (srP)->r_sp = (ULong)((uc)->uc_mcontext.esp);    \
+        (srP)->misc.X86.r_ebp = (uc)->uc_mcontext.ebp;   \
+      }
 
 #elif defined(VGP_amd64_freebsd)
 #  define VG_UCONTEXT_INSTR_PTR(uc)       ((uc)->uc_mcontext.rip)
@@ -544,6 +549,11 @@ typedef struct SigQueue {
       VG_(mk_SysRes_amd64_freebsd)( (uc)->uc_mcontext.rax, \
 	 (uc)->uc_mcontext.rdx, ((uc)->uc_mcontext.rflags & 1) != 0 ? True : False )
 #  define VG_UCONTEXT_LINK_REG(uc)        0 /* No LR on amd64 either */
+#  define VG_UCONTEXT_TO_UnwindStartRegs(srP, uc)        \
+      { (srP)->r_pc = (uc)->uc_mcontext.rip;             \
+        (srP)->r_sp = (uc)->uc_mcontext.rsp;             \
+        (srP)->misc.AMD64.r_rbp = (uc)->uc_mcontext.rbp; \
+      }
 #else 
 #  error Unknown platform
 #endif
