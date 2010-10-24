@@ -2666,10 +2666,6 @@ PRE(sys_shmctl)
       PRE_MEM_READ( "shmctl(IPC_SET, buf)",
                     ARG3, sizeof(struct vki_shmid_ds) );
       break;
-   case VKI_IPC_RMID:
-      PRE_MEM_READ( "shmctl(IPC_RMID, buf)",
-                    ARG3, sizeof(struct vki_shmid_ds) );
-      break;
    }
 }
 
@@ -2685,10 +2681,6 @@ PRE(sys_shmctl7)
       break;
    case VKI_IPC_SET:
       PRE_MEM_READ( "shmctl7(IPC_SET, buf)",
-                    ARG3, sizeof(struct vki_shmid_ds7) );
-      break;
-   case VKI_IPC_RMID:
-      PRE_MEM_READ( "shmctl7(IPC_RMID, buf)",
                     ARG3, sizeof(struct vki_shmid_ds7) );
       break;
    }
