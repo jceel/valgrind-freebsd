@@ -1232,22 +1232,6 @@ struct vki_utsname {
         char    machine[VKI_SYS_NMLN];      /* Hardware type. */
 };
 
-//----------------------------------------------------------------------
-// From sys/ipc.h
-//----------------------------------------------------------------------
-
-/* Obsolete, used only for backwards compatibility and libc5 compiles */
-struct vki_ipc_perm
-{
-	vki_uint16_t	cuid;
-	vki_uint16_t	cgid;
-	vki_uint16_t	uid;
-	vki_uint16_t	gid;
-	vki_uint16_t	mode; 
-	vki_uint16_t	seq;
-	vki_uint16_t	key;
-};
-
 #define VKI_IPC_CREAT  00001000   /* create if key is nonexistent */
 #define VKI_IPC_EXCL   00002000   /* fail if key exists */
 #define VKI_IPC_NOWAIT 00004000   /* return error on wait */
@@ -1257,7 +1241,16 @@ struct vki_ipc_perm
 #define VKI_IPC_STAT 2     /* get ipc_perm options */
 #define VKI_IPC_INFO 3     /* see ipcs */
 
-// not here #define VKI_IPC_64  0x0100  /* New version (support 32-bit UIDs, bigger message sizes, etc. */
+struct vki_ipc_perm
+{
+	vki_uid_t	cuid;
+	vki_gid_t	cgid;
+	vki_uid_t	uid;
+	vki_gid_t	gid;
+	vki_mode_t	mode;
+	unsigned short	seq;
+	vki_key_t	key;
+};
 
 //----------------------------------------------------------------------
 // From sys/sem.h
@@ -1491,14 +1484,13 @@ struct vki_msgbuf {
 
 struct vki_shmid_ds {
 	struct vki_ipc_perm	shm_perm;	/* operation perms */
-	vki_int32_t		shm_segsz;	/* size of segment (bytes) */
+	vki_size_t		shm_segsz;	/* size of segment (bytes) */
 	vki_pid_t		shm_lpid;	/* pid of last operator */
 	vki_pid_t		shm_cpid;	/* pid of creator */
-	vki_int16_t		shm_nattch;	/* no. of current attaches */
+	int			shm_nattch;	/* no. of current attaches */
 	vki_time_t		shm_atime;	/* last attach time */
 	vki_time_t		shm_dtime;	/* last detach time */
 	vki_time_t		shm_ctime;	/* last change time */
-	void 			*shm_internal;
 };
 
 #define VKI_SHMLBA  VKI_PAGE_SIZE
