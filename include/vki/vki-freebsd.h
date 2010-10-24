@@ -1236,7 +1236,7 @@ struct vki_utsname {
 #define VKI_IPC_EXCL   00002000   /* fail if key exists */
 #define VKI_IPC_NOWAIT 00004000   /* return error on wait */
 
-//#define VKI_IPC_RMID 0     /* remove resource */
+#define VKI_IPC_RMID 0     /* remove resource */
 #define VKI_IPC_SET  1     /* set ipc_perm options */
 #define VKI_IPC_STAT 2     /* get ipc_perm options */
 #define VKI_IPC_INFO 3     /* see ipcs */
@@ -1248,6 +1248,17 @@ struct vki_ipc_perm
 	vki_uid_t	uid;
 	vki_gid_t	gid;
 	vki_mode_t	mode;
+	unsigned short	seq;
+	vki_key_t	key;
+};
+
+struct vki_ipc_perm7
+{
+	unsigned short	cuid;
+	unsigned short	cgid;
+	unsigned short	uid;
+	unsigned short	gid;
+	unsigned short	mode;
 	unsigned short	seq;
 	vki_key_t	key;
 };
@@ -1491,6 +1502,18 @@ struct vki_shmid_ds {
 	vki_time_t		shm_atime;	/* last attach time */
 	vki_time_t		shm_dtime;	/* last detach time */
 	vki_time_t		shm_ctime;	/* last change time */
+};
+
+struct vki_shmid_ds7 {
+	struct vki_ipc_perm7	shm_perm;	/* operation perms */
+	int			shm_segsz;	/* size of segment (bytes) */
+	vki_pid_t		shm_lpid;	/* pid of last operator */
+	vki_pid_t		shm_cpid;	/* pid of creator */
+	short			shm_nattch;	/* no. of current attaches */
+	vki_time_t		shm_atime;	/* last attach time */
+	vki_time_t		shm_dtime;	/* last detach time */
+	vki_time_t		shm_ctime;	/* last change time */
+	void			*shm_internal;	/* sysv stupidity */
 };
 
 #define VKI_SHMLBA  VKI_PAGE_SIZE

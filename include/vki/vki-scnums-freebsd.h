@@ -194,7 +194,7 @@
 #define	__NR_msgsnd		226
 #define	__NR_msgrcv		227
 #define	__NR_shmat		228
-#define	__NR_shmctl		229
+#define	__NR_shmctl7		229
 #define	__NR_shmdt		230
 #define	__NR_shmget		231
 #define	__NR_clock_gettime	232
@@ -406,5 +406,6 @@
 #define	__NR_unlinkat		503
 #define	__NR_posix_openpt	504
 #define	__NR___semctl		510
+#define	__NR_shmctl		512
 
 #endif /* __VKI_UNISTD_FREEBSD_H */

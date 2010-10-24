@@ -119,6 +119,7 @@ DECL_TEMPLATE(freebsd, sys_msgsnd);
 DECL_TEMPLATE(freebsd, sys_msgrcv);
 DECL_TEMPLATE(freebsd, sys_shmat);
 DECL_TEMPLATE(freebsd, sys_shmctl);
+DECL_TEMPLATE(freebsd, sys_shmctl7);
 DECL_TEMPLATE(freebsd, sys_shmdt);
 DECL_TEMPLATE(freebsd, sys_shmget);
 DECL_TEMPLATE(freebsd, sys_clock_gettime);
