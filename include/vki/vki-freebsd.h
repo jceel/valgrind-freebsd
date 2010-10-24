@@ -873,32 +873,59 @@ struct vki_rtentry
 //----------------------------------------------------------------------
 
 typedef struct vki_fsid { vki_int32_t val[2]; } vki_fsid_t;
+#define VKI_OMFSNAMELEN	16
+#define VKI_OMNAMELEN	(88 - 2 * sizeof(long))
 #define VKI_MFSNAMELEN	16
-#define VKI_MNAMELEN	80
+#define VKI_MNAMELEN	88
 
-struct vki_statfs {
-	vki_int32_t	f_spare2;
-	vki_int32_t	f_bsize;
-	vki_int32_t	f_iosize;
-	vki_int32_t	f_blocks;
-	vki_int32_t	f_bfree;
-	vki_int32_t	f_bavail;
-	vki_int32_t	f_files;
-	vki_int32_t	f_ffree;
+struct vki_statfs4 {
+	long		f_spare2;
+	long		f_bsize;
+	long		f_iosize;
+	long		f_blocks;
+	long		f_bfree;
+	long		f_bavail;
+	long		f_files;
+	long		f_ffree;
 	vki_fsid_t	f_fsid;
 	vki_uid_t	f_owner;
 	vki_int32_t	f_type;
 	vki_int32_t	f_flags;
-	vki_int32_t	f_syncwrites;
-	vki_int32_t	f_asyncwrites;
-	char		f_fstypename[VKI_MFSNAMELEN];
-	char		f_mntonname[VKI_MNAMELEN];
-	vki_int32_t	f_syncreads;
-	vki_int32_t	f_asyncreads;
+	long		f_syncwrites;
+	long		f_asyncwrites;
+	char		f_fstypename[VKI_OMFSNAMELEN];
+	char		f_mntonname[VKI_OMNAMELEN];
+	long		f_syncreads;
+	long		f_asyncreads;
 	vki_int16_t	f_spares1;
-	char		f_mntfromnname[VKI_MNAMELEN];
+	char		f_mntfromnname[VKI_OMNAMELEN];
 	vki_int16_t	f_spares2;
-	vki_uint32_t	f_spare[2];
+	long		f_spare[2];
+};
+
+struct vki_statfs {
+	vki_uint32_t	f_version;
+	vki_uint32_t	f_type;
+	vki_uint64_t	f_flags;
+	vki_uint64_t	f_bsize;
+	vki_uint64_t	f_iosize;
+	vki_uint64_t	f_blocks;
+	vki_uint64_t	f_bfree;
+	vki_int64_t	f_bavail;
+	vki_uint64_t	f_files;
+	vki_int64_t	f_ffree;
+	vki_uint64_t	f_syncwrites;
+	vki_uint64_t	f_asyncwrites;
+	vki_uint64_t	f_syncreads;
+	vki_uint64_t	f_asyncreads;
+	vki_uint64_t	f_spare[10];
+	vki_uint32_t	f_namemax;
+	vki_uid_t	f_owner;
+	vki_fsid_t	f_fsid;
+	char		f_charspare[80];
+	char		f_fstypename[VKI_MFSNAMELEN];
+	char		f_mntfromnname[VKI_MNAMELEN];
+	char		f_mntonname[VKI_MNAMELEN];
 };
 
 #define MAXFIDSZ        16

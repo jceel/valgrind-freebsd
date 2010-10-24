@@ -49,7 +49,7 @@
 #define	__NR_chmod		15
 #define	__NR_chown		16
 #define	__NR_break		17
-#define	__NR_getfsstat		18
+#define	__NR_getfsstat4		18
 #define	__NR_getpid		20
 #define	__NR_mount		21
 #define	__NR_unmount		22
@@ -299,7 +299,7 @@
 #define	__NR_uuidgen		392
 #define	__NR_sendfile		393
 #define	__NR_mac_syscall	394
-#define	__NR_getfsstat6		395
+#define	__NR_getfsstat		395
 #define	__NR_statfs6		396
 #define	__NR_fstatfs6		397
 #define	__NR_fhstatfs6		398

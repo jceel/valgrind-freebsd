@@ -45,6 +45,7 @@ extern SysRes ML_(do_rfork) ( ThreadId tid, Int flags );
 
 DECL_TEMPLATE(freebsd, sys_syscall);
 DECL_TEMPLATE(freebsd, sys_exit);
+DECL_TEMPLATE(freebsd, sys_getfsstat4);
 DECL_TEMPLATE(freebsd, sys_getfsstat);
 DECL_TEMPLATE(freebsd, sys_mount);
 DECL_TEMPLATE(freebsd, sys_unmount);

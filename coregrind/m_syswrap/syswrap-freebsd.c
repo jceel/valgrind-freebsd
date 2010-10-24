@@ -1081,10 +1081,24 @@ POST(sys___getcwd)
 
 // getfsstat() takes a length in bytes, but returns the number of structures
 // returned, not a length.
+PRE(sys_getfsstat4)
+{
+   PRINT("sys_getfsstat ( %#lx, %ld, %ld )",ARG1,ARG2,ARG3);
+   PRE_REG_READ3(long, "getfsstat", struct vki_statfs4 *, buf, long, len, int, flags);
+   PRE_MEM_WRITE( "getfsstat(buf)", ARG1, ARG2 );
+}
+POST(sys_getfsstat4)
+{
+   vg_assert(SUCCESS);
+   if (RES > 0) {
+      POST_MEM_WRITE( ARG1, RES * sizeof(struct vki_statfs4) );
+   }
+}
+
 PRE(sys_getfsstat)
 {
    PRINT("sys_getfsstat ( %#lx, %ld, %ld )",ARG1,ARG2,ARG3);
-   PRE_REG_READ3(long, "getfsstat", struct statfs *, buf, long, len, int, flags);
+   PRE_REG_READ3(long, "getfsstat", struct vki_statfs *, buf, long, len, int, flags);
    PRE_MEM_WRITE( "getfsstat(buf)", ARG1, ARG2 );
 }
 POST(sys_getfsstat)
@@ -3365,7 +3379,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    GENX_(__NR_chown,			sys_chown),			// 16
    GENX_(__NR_break,			sys_brk),			// 17
-   BSDXY(__NR_getfsstat,		sys_getfsstat),			// 18
+   BSDXY(__NR_getfsstat4,		sys_getfsstat4),		// 18
    // 4.3 lseek								   19
 
    GENX_(__NR_getpid,			sys_getpid),			// 20
@@ -3836,7 +3850,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDXY(__NR_uuidgen,			sys_uuidgen),			// 392
    BSDXY(__NR_sendfile,			sys_sendfile),			// 393
    // mac_syscall							   394
-   // getfsstat								   395
+   BSDXY(__NR_getfsstat,		sys_getfsstat),			// 395
 
    BSDXY(__NR_statfs6,			sys_statfs6),			// 396
    BSDXY(__NR_fstatfs6,			sys_fstatfs6),			// 397
