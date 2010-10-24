@@ -2642,13 +2642,56 @@ PRE(sys_shmctl)
 {
    PRINT("sys_shmctl ( %ld, %ld, %#lx )",ARG1,ARG2,ARG3);
    PRE_REG_READ3(long, "shmctl",
-                 int, shmid, int, cmd, struct shmid_ds *, buf);
-   ML_(generic_PRE_sys_shmctl)(tid, ARG1,ARG2,ARG3);
+                 int, shmid, int, cmd, struct vki_shmid_ds *, buf);
+   switch (ARG2 /* cmd */) {
+   case VKI_IPC_STAT:
+      PRE_MEM_WRITE( "shmctl(IPC_STAT, buf)",
+                     ARG3, sizeof(struct vki_shmid_ds) );
+      break;
+   case VKI_IPC_SET:
+      PRE_MEM_READ( "shmctl(IPC_SET, buf)",
+                    ARG3, sizeof(struct vki_shmid_ds) );
+      break;
+   case VKI_IPC_RMID:
+      PRE_MEM_READ( "shmctl(IPC_RMID, buf)",
+                    ARG3, sizeof(struct vki_shmid_ds) );
+      break;
+   }
+}
+
+PRE(sys_shmctl7)
+{
+   PRINT("sys_shmctl7 ( %ld, %ld, %#lx )",ARG1,ARG2,ARG3);
+   PRE_REG_READ3(long, "shmctl",
+                 int, shmid, int, cmd, struct vki_shmid_ds7 *, buf);
+   switch (ARG2 /* cmd */) {
+   case VKI_IPC_STAT:
+      PRE_MEM_WRITE( "shmctl7(IPC_STAT, buf)",
+                     ARG3, sizeof(struct vki_shmid_ds7) );
+      break;
+   case VKI_IPC_SET:
+      PRE_MEM_READ( "shmctl7(IPC_SET, buf)",
+                    ARG3, sizeof(struct vki_shmid_ds7) );
+      break;
+   case VKI_IPC_RMID:
+      PRE_MEM_READ( "shmctl7(IPC_RMID, buf)",
+                    ARG3, sizeof(struct vki_shmid_ds7) );
+      break;
+   }
 }
 
 POST(sys_shmctl)
 {
-   ML_(generic_POST_sys_shmctl)(tid, RES,ARG1,ARG2,ARG3);
+   if (ARG2 == VKI_IPC_STAT) {
+      POST_MEM_WRITE( ARG3, sizeof(struct vki_shmid_ds) );
+   }
+}
+
+POST(sys_shmctl7)
+{
+   if (ARG2 == VKI_IPC_STAT) {
+      POST_MEM_WRITE( ARG3, sizeof(struct vki_shmid_ds7) );
+   }
 }
 
 PRE(sys_semget)
@@ -3586,7 +3629,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 // BSDXY(__NR_msgrcv,			sys_msgrcv),			// 227
 
    BSDXY(__NR_shmat,			sys_shmat),				// 228
-   BSDXY(__NR_shmctl,			sys_shmctl),			// 229
+   BSDXY(__NR_shmctl7,			sys_shmctl7),			// 229
    BSDXY(__NR_shmdt,			sys_shmdt),				// 230
    BSDX_(__NR_shmget,			sys_shmget),			// 231
 
@@ -3933,6 +3976,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // posix_openpt							   504
 
    BSDXY(__NR___semctl,			sys___semctl),			// 510
+   BSDXY(__NR_shmctl,			sys_shmctl),			// 512
 
 
 };
