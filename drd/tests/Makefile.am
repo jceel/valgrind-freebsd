@@ -311,8 +311,10 @@ check_PROGRAMS +=        \
   annotate_smart_pointer \
   atomic_var             \
   circular_buffer        \
-  read_after_free        \
-  tsan_unittest
+  read_after_free
+if !VGCONF_OS_IS_FREEBSD
+check_PROGRAMS += tsan_unittest
+endif
 endif
 
 if HAVE_OPENMP

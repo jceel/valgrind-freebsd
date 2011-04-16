@@ -234,6 +234,10 @@ void ML_(addSym) ( struct _DebugInfo* di, DiSym* sym )
    UInt   new_sz, i;
    DiSym* new_tab;
 
+#if defined(VGO_freebsd)
+   if (sym->size == 0)
+      sym->size = 1;
+#endif
    /* Ignore zero-sized syms. */
    if (sym->size == 0) return;
 
@@ -1126,7 +1130,7 @@ static DiSym* prefersym ( struct _DebugInfo* di, DiSym* a, DiSym* b )
    vlena = VG_(strlen)(a->name);
    vlenb = VG_(strlen)(b->name);
 
-#if defined(VGO_linux) || defined(VGO_aix5)
+#if defined(VGO_linux) || defined(VGO_aix5) || defined(VGO_freebsd)
 #  define VERSION_CHAR '@'
 #elif defined(VGO_darwin)
 #  define VERSION_CHAR '$'

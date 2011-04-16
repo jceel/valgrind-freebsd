@@ -97,7 +97,6 @@ Bool is_overlap ( void* dst, const void* src, SizeT dstlen, SizeT srclen )
 			      s, src, dst, len, 0); \
 }
 
-
 #define STRRCHR(soname, fnname) \
    char* VG_REPLACE_FUNCTION_ZU(soname,fnname)( const char* s, int c ); \
    char* VG_REPLACE_FUNCTION_ZU(soname,fnname)( const char* s, int c ) \
@@ -118,6 +117,9 @@ STRRCHR(VG_Z_LIBC_SONAME,   rindex)
 #if defined(VGO_linux)
 STRRCHR(VG_Z_LIBC_SONAME,   __GI_strrchr)
 STRRCHR(VG_Z_LD_LINUX_SO_2, rindex)
+#elif defined(VGO_freebsd)
+STRRCHR(VG_Z_LD_ELF_SO_1, strrchr)
+STRRCHR(VG_Z_LD_ELF32_SO_1, strrchr)
 #elif defined(VGO_darwin)
 STRRCHR(VG_Z_DYLD,          strrchr)
 STRRCHR(VG_Z_DYLD,          rindex)
@@ -146,6 +148,9 @@ STRCHR(VG_Z_LD_LINUX_SO_2,        strchr)
 STRCHR(VG_Z_LD_LINUX_SO_2,        index)
 STRCHR(VG_Z_LD_LINUX_X86_64_SO_2, strchr)
 STRCHR(VG_Z_LD_LINUX_X86_64_SO_2, index)
+#elif defined(VGO_freebsd)
+STRCHR(VG_Z_LD_ELF_SO_1, strchr)
+STRCHR(VG_Z_LD_ELF32_SO_1, strchr)
 #elif defined(VGO_darwin)
 STRCHR(VG_Z_DYLD,                 strchr)
 STRCHR(VG_Z_DYLD,                 index)
@@ -174,6 +179,10 @@ STRCHR(VG_Z_DYLD,                 index)
    }
 
 STRCAT(VG_Z_LIBC_SONAME, strcat)
+#if defined(VGO_freebsd)
+STRCAT(VG_Z_LD_ELF_SO_1, strcat)
+STRCAT(VG_Z_LD_ELF32_SO_1, strcat)
+#endif
 #if defined(VGO_linux)
 STRCAT(VG_Z_LIBC_SONAME, __GI_strcat)
 #endif
@@ -248,6 +257,9 @@ STRNCAT(VG_Z_DYLD,        strncat)
 #if defined(VGO_darwin)
 STRLCAT(VG_Z_LIBC_SONAME, strlcat)
 STRLCAT(VG_Z_DYLD,        strlcat)
+#elif defined(VGO_freebsd)
+STRLCAT(VG_Z_LD_ELF_SO_1, strlcat)
+STRLCAT(VG_Z_LD_ELF32_SO_1, strlcat)
 #endif
 
 
@@ -284,6 +296,9 @@ STRLEN(VG_Z_LIBC_SONAME,          strlen)
 STRLEN(VG_Z_LIBC_SONAME,          __GI_strlen)
 STRLEN(VG_Z_LD_LINUX_SO_2,        strlen)
 STRLEN(VG_Z_LD_LINUX_X86_64_SO_2, strlen)
+#elif defined(VGO_freebsd)
+STRLEN(VG_Z_LD_ELF_SO_1, strlen)
+STRLEN(VG_Z_LD_ELF32_SO_1, strlen)
 #endif
 
 
@@ -313,6 +328,9 @@ STRCPY(VG_Z_LIBC_SONAME, strcpy)
 STRCPY(VG_Z_LIBC_SONAME, __GI_strcpy)
 #elif defined(VGO_darwin)
 STRCPY(VG_Z_DYLD,        strcpy)
+#elif defined(VGO_freebsd)
+STRCPY(VG_Z_LD_ELF_SO_1, strcpy)
+STRCPY(VG_Z_LD_ELF32_SO_1, strcpy)
 #endif
 
 
@@ -341,6 +359,9 @@ STRNCPY(VG_Z_LIBC_SONAME, strncpy)
 STRNCPY(VG_Z_LIBC_SONAME, __GI_strncpy)
 #elif defined(VGO_darwin)
 STRNCPY(VG_Z_DYLD,        strncpy)
+#elif defined(VGO_freebsd)
+STRNCPY(VG_Z_LD_ELF_SO_1, strncpy)
+STRNCPY(VG_Z_LD_ELF32_SO_1, strncpy)
 #endif
 
 
@@ -372,6 +393,9 @@ STRNCPY(VG_Z_DYLD,        strncpy)
 #if defined(VGO_darwin)
 STRLCPY(VG_Z_LIBC_SONAME, strlcpy)
 STRLCPY(VG_Z_DYLD,        strlcpy)
+#elif defined(VGO_freebsd)
+STRLCPY(VG_Z_LD_ELF_SO_1, strlcpy)
+STRLCPY(VG_Z_LD_ELF32_SO_1, strlcpy)
 #endif
 
 
@@ -400,6 +424,9 @@ STRNCMP(VG_Z_LIBC_SONAME, strncmp)
 STRNCMP(VG_Z_LIBC_SONAME, __GI_strncmp)
 #elif defined(VGO_darwin)
 STRNCMP(VG_Z_DYLD,        strncmp)
+#elif defined(VGO_freebsd)
+STRNCMP(VG_Z_LD_ELF_SO_1, strncmp)
+STRNCMP(VG_Z_LD_ELF32_SO_1, strncmp)
 #endif
 
 
@@ -540,6 +567,9 @@ STRCMP(VG_Z_LIBC_SONAME,          strcmp)
 STRCMP(VG_Z_LIBC_SONAME,          __GI_strcmp)
 STRCMP(VG_Z_LD_LINUX_X86_64_SO_2, strcmp)
 STRCMP(VG_Z_LD64_SO_1,            strcmp)
+#elif defined(VGO_freebsd)
+STRCMP(VG_Z_LD_ELF_SO_1, strcmp)
+STRCMP(VG_Z_LD_ELF32_SO_1, strcmp)
 #endif
 
 
@@ -558,6 +588,9 @@ STRCMP(VG_Z_LD64_SO_1,            strcmp)
 MEMCHR(VG_Z_LIBC_SONAME, memchr)
 #if defined(VGO_darwin)
 MEMCHR(VG_Z_DYLD,        memchr)
+#elif defined(VGO_freebsd)
+MEMCHR(VG_Z_LD_ELF_SO_1, memchr)
+MEMCHR(VG_Z_LD_ELF32_SO_1, memchr)
 #endif
 
 
@@ -636,6 +669,9 @@ MEMCPY(VG_Z_LIBC_SONAME, memcpy)
 #if defined(VGO_linux)
 MEMCPY(VG_Z_LD_SO_1,     memcpy) /* ld.so.1 */
 MEMCPY(VG_Z_LD64_SO_1,   memcpy) /* ld64.so.1 */
+#elif defined(VGO_freebsd)
+MEMCPY(VG_Z_LD_ELF_SO_1, memcpy)
+MEMCPY(VG_Z_LD_ELF32_SO_1, memcpy)
 #elif defined(VGO_darwin)
 MEMCPY(VG_Z_DYLD,        memcpy)
 #endif
@@ -713,6 +749,9 @@ STPCPY(VG_Z_LIBC_SONAME,          stpcpy)
 STPCPY(VG_Z_LIBC_SONAME,          __GI_stpcpy)
 STPCPY(VG_Z_LD_LINUX_SO_2,        stpcpy)
 STPCPY(VG_Z_LD_LINUX_X86_64_SO_2, stpcpy)
+#elif defined(VGO_freebsd)
+STPCPY(VG_Z_LD_ELF_SO_1, stpcpy)
+STPCPY(VG_Z_LD_ELF32_SO_1, stpcpy)
 #elif defined(VGO_darwin)
 STPCPY(VG_Z_DYLD,                 stpcpy)
 #endif
@@ -738,6 +777,9 @@ STPCPY(VG_Z_DYLD,                 stpcpy)
 MEMSET(VG_Z_LIBC_SONAME, memset)
 #if defined(VGO_darwin)
 MEMSET(VG_Z_DYLD,        memset)
+#elif defined(VGO_freebsd)
+MEMSET(VG_Z_LD_ELF_SO_1, memset)
+MEMSET(VG_Z_LD_ELF32_SO_1, memset)
 #endif
 
 
@@ -765,6 +807,9 @@ MEMSET(VG_Z_DYLD,        memset)
 MEMMOVE(VG_Z_LIBC_SONAME, memmove)
 #if defined(VGO_darwin)
 MEMMOVE(VG_Z_DYLD,        memmove)
+#elif defined(VGO_freebsd)
+MEMMOVE(VG_Z_LD_ELF_SO_1, memmove)
+MEMMOVE(VG_Z_LD_ELF32_SO_1, memmove)
 #endif
 
 
@@ -791,6 +836,9 @@ MEMMOVE(VG_Z_DYLD,        memmove)
 #if defined(VGO_darwin)
 BCOPY(VG_Z_LIBC_SONAME, bcopy)
 BCOPY(VG_Z_DYLD,        bcopy)
+#elif defined(VGO_freebsd)
+BCOPY(VG_Z_LD_ELF_SO_1, bcopy)
+BCOPY(VG_Z_LD_ELF32_SO_1, bcopy)
 #endif
 
 
@@ -1154,7 +1202,7 @@ STRCSPN(VG_Z_LIBC_SONAME,          strcspn)
 /*--- Improve definedness checking of process environment  ---*/
 /*------------------------------------------------------------*/
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 
 /* putenv */
 int VG_WRAP_FUNCTION_ZU(VG_Z_LIBC_SONAME, putenv) (char* string);

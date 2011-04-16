@@ -28,7 +28,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux) || defined(VGO_darwin)
+#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
 
 /*
    Stabs reader greatly improved by Nick Nethercote, Apr 02.
@@ -57,6 +57,9 @@
 #  if VG_WORDSIZE == 8
 #     define nlist nlist_64
 #  endif
+#elif defined(VGO_freebsd)
+#  include <a.out.h>
+#  include <sys/nlist_aout.h>
 #else
 #  error "Unknown OS"
 #endif
@@ -389,7 +392,7 @@ void ML_(read_debuginfo_stabs) ( DebugInfo* di,
    }
 }
 
-#endif // defined(VGO_linux) || defined(VGO_darwin)
+#endif // defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

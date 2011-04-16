@@ -73,8 +73,10 @@ check_PROGRAMS = \
 # DDD: not sure if these ones should work on Darwin or not... if not, should
 # be moved into x86-linux/.
 if ! VGCONF_OS_IS_DARWIN
+if ! VGCONF_OS_IS_FREEBSD
    check_PROGRAMS += \
 	ccc
+endif
 endif
 
 
@@ -106,9 +108,14 @@ if VGCONF_OS_IS_DARWIN
  preen_invars_LDADD            = -ldl
  preen_invars_LDFLAGS          = $(AM_FLAG_M3264_PRI)
 else
+if VGCONF_OS_IS_FREEBSD
+ preen_invars_LDFLAGS          = $(AM_FLAG_M3264_PRI) \
+				-Wl,-rpath,$(top_builddir)/memcheck/tests
+else
  preen_invars_LDADD            = -ldl
  preen_invars_LDFLAGS          = $(AM_FLAG_M3264_PRI) \
 				-Wl,-rpath,$(top_builddir)/memcheck/tests
+endif
 endif
 endif
 endif
