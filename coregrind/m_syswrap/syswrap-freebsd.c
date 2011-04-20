@@ -2708,12 +2708,14 @@ PRE(sys_semget)
 
 PRE(sys_shm_open)
 {
-   PRINT("sys_shm_open(%#lx(%s), %ld, %ld)", ARG1, (char *)ARG1, ARG2, ARG3);
    PRE_REG_READ3(long, "shm_open",
-                 const char *, "name", int, "flags", vki_mode_t, "mode");
-
-   PRE_MEM_RASCIIZ( "shm_open(filename)", ARG1 );
-
+                const char *, "name", int, "flags", vki_mode_t, "mode");
+   if (ARG1 == VKI_SHM_ANON) {
+      PRINT("sys_shm_open(%#lx(SHM_ANON), %ld, %ld)", ARG1, ARG2, ARG3);
+   } else {
+      PRINT("sys_shm_open(%#lx(%s), %ld, %ld)", ARG1, (char *)ARG1, ARG2, ARG3);
+      PRE_MEM_RASCIIZ( "shm_open(filename)", ARG1 );
+   }
    *flags |= SfMayBlock;
 }
 

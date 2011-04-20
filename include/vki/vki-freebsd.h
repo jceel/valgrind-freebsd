@@ -1545,6 +1545,7 @@ struct vki_shmid_ds7 {
 
 #define VKI_SHMLBA  VKI_PAGE_SIZE
 #define VKI_SHM_RDONLY  010000  /* read-only access */
+#define	VKI_SHM_ANON	(1UL)
 
 #if 0	/* not in freebsd abi */
 #define VKI_SHMAT               21
