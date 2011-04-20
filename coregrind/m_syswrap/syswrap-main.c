@@ -322,14 +322,23 @@ void do_syscall_for_client ( Int syscallno,
 {
    vki_sigset_t saved;
    UWord err;
+#  if defined(VGO_freebsd)
+   Int real_syscallno;
+#  endif
 #  if defined(VGO_linux)
    err = ML_(do_syscall_for_client_WRK)(
             syscallno, &tst->arch.vex, 
             syscall_mask, &saved, sizeof(vki_sigset_t)
          );
 #  elif defined(VGO_freebsd)
+   if (tst->arch.vex.guest_SC_CLASS == VG_FREEBSD_SYSCALL0)
+      real_syscallno = __NR_syscall;
+   else if (tst->arch.vex.guest_SC_CLASS == VG_FREEBSD_SYSCALL198)
+      real_syscallno = __NR___syscall;
+   else
+      real_syscallno = syscallno;
    err = ML_(do_syscall_for_client_WRK)(
-            syscallno, &tst->arch.vex, 
+            real_syscallno, &tst->arch.vex, 
             syscall_mask, &saved, sizeof(vki_sigset_t)
          );
 #  elif defined(VGO_aix5)
@@ -528,7 +537,7 @@ void getSyscallArgsFromGuestState ( /*OUT*/SyscallArgs*       canonical,
       break;
    }
    // stack[0] is a (fake) return address
-   if (canonical->sysno != __NR_syscall && canonical->sysno != __NR___syscall) {
+   if (canonical->class != VG_FREEBSD_SYSCALL0 && canonical->class != VG_FREEBSD_SYSCALL198) {
       // stack[0] is return address
       canonical->arg1  = gst->guest_RDI;
       canonical->arg2  = gst->guest_RSI;
@@ -1623,6 +1632,10 @@ void VG_(client_syscall) ( ThreadId tid, UInt trc )
    /* Save the syscall number in the thread state in case the syscall 
       is interrupted by a signal. */
    sysno = sci->orig_args.sysno;
+
+#  if defined(VGO_freebsd)
+   tst->arch.vex.guest_SC_CLASS = sci->orig_args.class;
+#  endif
 
 #  if defined(VGO_darwin)
    /* Record syscall class.  But why?  Because the syscall might be
