@@ -2729,6 +2729,17 @@ POST(sys_shm_open)
    }
 }
 
+PRE(sys_shm_unlink)
+{
+   PRINT("sys_shm_unlink(%#lx(%s))", ARG1, (char *)ARG1);
+   PRE_REG_READ1(long, "shm_unlink",
+                 const char *, "name");
+
+   PRE_MEM_RASCIIZ( "shm_unlink(filename)", ARG1 );
+
+   *flags |= SfMayBlock;
+}
+
 PRE(sys_semop)
 {
    *flags |= SfMayBlock;
@@ -3952,7 +3963,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDX_(__NR_ftruncate7,		sys_ftruncate7),		// 480
    BSDXY(__NR_thr_kill2,                sys_thr_kill2),			// 481
    BSDXY(__NR_shm_open,			sys_shm_open),			// 482
-   // shm_unlink							   483
+   BSDX_(__NR_shm_unlink,		sys_shm_unlink),		// 483
 
    // cpuset								   484
    // cpuset_setid							   485
