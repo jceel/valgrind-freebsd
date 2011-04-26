@@ -294,6 +294,115 @@ PRE(sys_sigreturn)
    *flags |= SfPollAfter;
 }
 
+static void restore_mcontext(ThreadState *tst, struct vki_mcontext *sc)
+{
+   tst->arch.vex.guest_RAX     = sc->rax;
+   tst->arch.vex.guest_RCX     = sc->rcx;
+   tst->arch.vex.guest_RDX     = sc->rdx;
+   tst->arch.vex.guest_RBX     = sc->rbx;
+   tst->arch.vex.guest_RBP     = sc->rbp;
+   tst->arch.vex.guest_RSP     = sc->rsp;
+   tst->arch.vex.guest_RSI     = sc->rsi;
+   tst->arch.vex.guest_RDI     = sc->rdi;
+   tst->arch.vex.guest_R8      = sc->r8;
+   tst->arch.vex.guest_R9      = sc->r9;
+   tst->arch.vex.guest_R10     = sc->r10;
+   tst->arch.vex.guest_R11     = sc->r11;
+   tst->arch.vex.guest_R12     = sc->r12;
+   tst->arch.vex.guest_R13     = sc->r13;
+   tst->arch.vex.guest_R14     = sc->r14;
+   tst->arch.vex.guest_R15     = sc->r15;
+   tst->arch.vex.guest_RIP     = sc->rip;
+}
+
+static void fill_mcontext(ThreadState *tst, struct vki_mcontext *sc)
+{
+   sc->rax = tst->arch.vex.guest_RAX;
+   sc->rcx = tst->arch.vex.guest_RCX;
+   sc->rdx = tst->arch.vex.guest_RDX;
+   sc->rbx = tst->arch.vex.guest_RBX;
+   sc->rbp = tst->arch.vex.guest_RBP;
+   sc->rsp = tst->arch.vex.guest_RSP;
+   sc->rsi = tst->arch.vex.guest_RSI;
+   sc->rdi = tst->arch.vex.guest_RDI;
+   sc->r8 = tst->arch.vex.guest_R8;
+   sc->r9 = tst->arch.vex.guest_R9;
+   sc->r10 = tst->arch.vex.guest_R10;
+   sc->r11 = tst->arch.vex.guest_R11;
+   sc->r12 = tst->arch.vex.guest_R12;
+   sc->r13 = tst->arch.vex.guest_R13;
+   sc->r14 = tst->arch.vex.guest_R14;
+   sc->r15 = tst->arch.vex.guest_R15;
+   sc->rip = tst->arch.vex.guest_RIP;
+   sc->len = sizeof(*sc);
+//   bzero(sc->spare, sizeof(sc->spare));
+}
+
+PRE(sys_getcontext)
+{
+   ThreadState* tst;
+   struct vki_ucontext *uc;
+
+   PRINT("sys_getcontext ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "getcontext",
+                 struct vki_ucontext *, ucp);
+   PRE_MEM_WRITE( "getcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   uc = (struct vki_ucontext *)ARG1;
+   tst = VG_(get_ThreadState)(tid);
+   fill_mcontext(tst, &uc->uc_mcontext);
+//   bzero(uc->__spare__, sizeof(uc->__spare__));
+   SET_STATUS_Success(0);
+}
+
+
+PRE(sys_setcontext)
+{
+   ThreadState* tst;
+   struct vki_ucontext *uc;
+   int rflags;
+
+   PRINT("sys_setcontext ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "setcontext",
+                 struct vki_ucontext *, ucp);
+
+   PRE_MEM_READ( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+
+   vg_assert(VG_(is_valid_tid)(tid));
+   vg_assert(tid >= 1 && tid < VG_N_THREADS);
+   vg_assert(VG_(is_running_thread)(tid));
+
+   /* Adjust esp to point to start of frame; skip back up over handler
+      ret addr */
+   tst = VG_(get_ThreadState)(tid);
+//   tst->arch.vex.guest_RSP -= sizeof(Addr);
+
+   /* This is only so that the EIP is (might be) useful to report if
+      something goes wrong in the sigreturn */
+//   ML_(fixup_guest_state_to_restart_syscall)(&tst->arch);
+
+   uc = (struct vki_ucontext *)ARG1;
+ 
+   restore_mcontext(tst, &uc->uc_mcontext);
+
+   /* For unclear reasons, it appears we need the syscall to return
+      without changing %EAX.  Since %EAX is the return value, and can
+      denote either success or failure, we must set up so that the
+      driver logic copies it back unchanged.  Also, note %EAX is of
+      the guest registers written by VG_(sigframe_destroy). */
+   rflags = LibVEX_GuestAMD64_get_rflags(&tst->arch.vex);
+   SET_STATUS_from_SysRes( VG_(mk_SysRes_amd64_freebsd)( tst->arch.vex.guest_RAX,
+       tst->arch.vex.guest_RDX, (rflags & 1) != 0 ? True : False) );
+
+   /* Tell the driver not to update the guest state with the "result",
+      and set a bogus result to keep it happy. */
+   *flags |= SfNoWriteResult;
+   SET_STATUS_Success(0);
+
+   /* Check to see if some any signals arose as a result of this. */
+   *flags |= SfPollAfter;
+}
+
 /* This is here because on x86 the off_t is passed in 2 regs. Don't ask about pad.  */
 
 /* caddr_t mmap(caddr_t addr, size_t len, int prot, int flags, int fd, int pad, off_t pos); */

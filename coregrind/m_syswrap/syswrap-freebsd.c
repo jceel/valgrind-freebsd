@@ -3182,35 +3182,8 @@ PRE(sys___acl_aclcheck_link)
    PRE_MEM_READ( "__acl_aclcheck_link(aclp)", ARG3, sizeof(struct vki_acl) );
 }
 
-/* The *_context() wrappers aren't really safe.  They clobber registers not
-   preserved by the calling convention.  The kernel doesn't do this.  However,
-   in realtity it doesn't matter because we call these from C rather than asm. */
-PRE(sys_getcontext)
-{
-   PRINT("sys_getcontext ( %#lx )", ARG1);
-   PRE_REG_READ1(long, "getcontext",
-                 struct vki_ucontext *, ucp);
-   PRE_MEM_WRITE( "getcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
-}
-
 POST(sys_getcontext)
 {
-   POST_MEM_WRITE( ARG1, sizeof(struct vki_ucontext) );
-}
-
-PRE(sys_setcontext)
-{
-   PRINT("sys_setcontext ( %#lx )", ARG1);
-   PRE_REG_READ1(long, "setcontext",
-                 struct vki_ucontext *, ucp);
-
-   PRE_MEM_READ( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
-   PRE_MEM_WRITE( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
-}
-
-POST(sys_setcontext)
-{
-   /* changes uc_link etc */
    POST_MEM_WRITE( ARG1, sizeof(struct vki_ucontext) );
 }
 
@@ -3889,7 +3862,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    // __xlstat								   420
    BSDXY(__NR_getcontext,		sys_getcontext),		// 421
-   BSDXY(__NR_setcontext,		sys_setcontext),		// 422
+   BSDX_(__NR_setcontext,		sys_setcontext),		// 422
    BSDXY(__NR_swapcontext,		sys_swapcontext),		// 423
 
    // swapoff								   424

@@ -760,6 +760,80 @@ PRE(sys_rt_sigreturn)
 }
 #endif
 
+static void restore_mcontext(ThreadState *tst, struct vki_mcontext *sc)
+{
+   tst->arch.vex.guest_EAX     = sc->eax;
+   tst->arch.vex.guest_ECX     = sc->ecx;
+   tst->arch.vex.guest_EDX     = sc->edx;
+   tst->arch.vex.guest_EBX     = sc->ebx;
+   tst->arch.vex.guest_EBP     = sc->ebp;
+   tst->arch.vex.guest_ESP     = sc->esp;
+   tst->arch.vex.guest_ESI     = sc->esi;
+   tst->arch.vex.guest_EDI     = sc->edi;
+   tst->arch.vex.guest_EIP     = sc->eip;
+   tst->arch.vex.guest_CS      = sc->cs;
+   tst->arch.vex.guest_SS      = sc->ss;
+   tst->arch.vex.guest_DS      = sc->ds;
+   tst->arch.vex.guest_ES      = sc->es;
+   tst->arch.vex.guest_FS      = sc->fs;
+   tst->arch.vex.guest_GS      = sc->gs;
+}
+
+PRE(sys_getcontext)
+{
+   ThreadState* tst;
+   struct vki_ucontext *uc;
+
+   PRINT("sys_getcontext ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "getcontext",
+                 struct vki_ucontext *, ucp);
+   PRE_MEM_WRITE( "getcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   uc = (struct vki_ucontext *)ARG1;
+   tst = VG_(get_ThreadState)(tid);
+//   fill_mcontext(tst, &uc->uc_mcontext);
+   SET_STATUS_Success(0);
+}
+
+PRE(sys_setcontext)
+{
+   ThreadState* tst;
+   struct vki_ucontext *uc;
+   int rflags;
+
+   PRINT("sys_setcontext ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "setcontext",
+                 struct vki_ucontext *, ucp);
+
+   PRE_MEM_READ( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "setcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
+
+   vg_assert(VG_(is_valid_tid)(tid));
+   vg_assert(tid >= 1 && tid < VG_N_THREADS);
+   vg_assert(VG_(is_running_thread)(tid));
+
+   /* Adjust esp to point to start of frame; skip back up over handler
+      ret addr */
+   tst = VG_(get_ThreadState)(tid);
+   tst->arch.vex.guest_ESP -= sizeof(Addr);
+
+   /* This is only so that the EIP is (might be) useful to report if
+      something goes wrong in the sigreturn */
+   ML_(fixup_guest_state_to_restart_syscall)(&tst->arch);
+
+   VG_(sigframe_destroy)(tid);
+   uc = (struct vki_ucontext *)ARG1;
+                                  
+   restore_mcontext(tst, &uc->uc_mcontext);
+
+   /* Tell the driver not to update the guest state with the "result",
+      and set a bogus result to keep it happy. */
+   *flags |= SfNoWriteResult;
+   SET_STATUS_Success(0);
+
+   /* Check to see if some any signals arose as a result of this. */
+   *flags |= SfPollAfter;
+}
+
 /* This is here because on x86 the off_t is passed in 2 regs. Don't ask about pad.  */
 
 /* caddr_t mmap(caddr_t addr, size_t len, int prot, int flags, int fd, int pad, off_t pos); */
