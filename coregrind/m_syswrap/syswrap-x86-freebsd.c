@@ -777,20 +777,65 @@ static void restore_mcontext(ThreadState *tst, struct vki_mcontext *sc)
    tst->arch.vex.guest_ES      = sc->es;
    tst->arch.vex.guest_FS      = sc->fs;
    tst->arch.vex.guest_GS      = sc->gs;
+   /*
+    * XXX: missing support for other flags.
+    */
+   if (sc->eflags & 0x0001)
+      LibVEX_GuestX86_put_eflag_c(1, &tst->arch.vex);
+   else
+      LibVEX_GuestX86_put_eflag_c(0, &tst->arch.vex);
 }
+
+static void fill_mcontext(ThreadState *tst, struct vki_mcontext *sc)
+{
+   sc->eax = tst->arch.vex.guest_EAX;
+   sc->ecx = tst->arch.vex.guest_ECX;
+   sc->edx = tst->arch.vex.guest_EDX;
+   sc->ebx = tst->arch.vex.guest_EBX;
+   sc->ebp = tst->arch.vex.guest_EBP;
+   sc->esp = tst->arch.vex.guest_ESP;
+   sc->esi = tst->arch.vex.guest_ESI;
+   sc->edi = tst->arch.vex.guest_EDI;
+   sc->eip = tst->arch.vex.guest_EIP;
+   sc->cs = tst->arch.vex.guest_CS;
+   sc->ss = tst->arch.vex.guest_SS;
+   sc->ds = tst->arch.vex.guest_DS;
+   sc->es = tst->arch.vex.guest_ES;
+   sc->fs = tst->arch.vex.guest_FS;
+   sc->gs = tst->arch.vex.guest_GS;
+   sc->eflags = LibVEX_GuestX86_get_eflags(&tst->arch.vex);
+/*
+   not yet.
+   VG_(memcpy)(&sc->fpstate, fpstate, sizeof(*fpstate));
+*/
+   sc->fpformat = VKI_FPFMT_NODEV;
+   sc->ownedfp = VKI_FPOWNED_NONE;
+   sc->len = sizeof(*sc);
+   VG_(memset)(sc->spare2, 0, sizeof(sc->spare2));
+}
+
 
 PRE(sys_getcontext)
 {
    ThreadState* tst;
    struct vki_ucontext *uc;
-
+   
    PRINT("sys_getcontext ( %#lx )", ARG1);
    PRE_REG_READ1(long, "getcontext",
                  struct vki_ucontext *, ucp);
    PRE_MEM_WRITE( "getcontext(ucp)", ARG1, sizeof(struct vki_ucontext) );
    uc = (struct vki_ucontext *)ARG1;
+   if (uc == NULL) {
+      SET_STATUS_Failure(VKI_EINVAL);
+      return;
+   }
    tst = VG_(get_ThreadState)(tid);
-//   fill_mcontext(tst, &uc->uc_mcontext);
+   fill_mcontext(tst, &uc->uc_mcontext);
+   uc->uc_mcontext.eax = 0;
+   uc->uc_mcontext.edx = 0;
+   uc->uc_mcontext.eflags &= ~0x0001;   /* PSL_C */
+   uc->uc_sigmask = tst->sig_mask;
+   VG_(memset)(uc->__spare__, 0, sizeof(uc->__spare__));
    SET_STATUS_Success(0);
 }
 
@@ -798,7 +843,6 @@ PRE(sys_setcontext)
 {
    ThreadState* tst;
    struct vki_ucontext *uc;
-   int rflags;
 
    PRINT("sys_setcontext ( %#lx )", ARG1);
    PRE_REG_READ1(long, "setcontext",
@@ -811,19 +855,60 @@ PRE(sys_setcontext)
    vg_assert(tid >= 1 && tid < VG_N_THREADS);
    vg_assert(VG_(is_running_thread)(tid));
 
-   /* Adjust esp to point to start of frame; skip back up over handler
-      ret addr */
    tst = VG_(get_ThreadState)(tid);
-   tst->arch.vex.guest_ESP -= sizeof(Addr);
-
-   /* This is only so that the EIP is (might be) useful to report if
-      something goes wrong in the sigreturn */
-   ML_(fixup_guest_state_to_restart_syscall)(&tst->arch);
-
-   VG_(sigframe_destroy)(tid);
    uc = (struct vki_ucontext *)ARG1;
-                                  
+   if (uc == NULL || uc->uc_mcontext.len != sizeof(uc->uc_mcontext)) {
+      SET_STATUS_Failure(VKI_EINVAL);
+      return;
+   }
+   
    restore_mcontext(tst, &uc->uc_mcontext);
+   tst->sig_mask = uc->uc_sigmask;
+                                  
+   /* Tell the driver not to update the guest state with the "result",
+      and set a bogus result to keep it happy. */
+   *flags |= SfNoWriteResult;
+   SET_STATUS_Success(0);
+
+   /* Check to see if some any signals arose as a result of this. */
+   *flags |= SfPollAfter;
+}
+
+PRE(sys_swapcontext)
+{
+   struct vki_ucontext *ucp, *oucp;
+   ThreadState* tst;
+
+   PRINT("sys_swapcontext ( %#lx, %#lx )", ARG1, ARG2);
+   PRE_REG_READ2(long, "swapcontext",
+                 struct vki_ucontext *, oucp, struct vki_ucontext *, ucp);
+ 
+   PRE_MEM_READ( "swapcontext(ucp)", ARG2, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "swapcontext(oucp)", ARG1, sizeof(struct vki_ucontext) );
+ 
+   oucp = (struct vki_ucontext *)ARG1;
+   ucp = (struct vki_ucontext *)ARG2;
+   if (oucp == NULL || ucp == NULL || ucp->uc_mcontext.len != sizeof(ucp->uc_mcontext)) {
+      SET_STATUS_Failure(VKI_EINVAL);
+      return;
+   }
+   tst = VG_(get_ThreadState)(tid);
+
+   /*
+    * Save the context.
+    */
+   fill_mcontext(tst, &oucp->uc_mcontext);
+   oucp->uc_mcontext.eax = 0;
+   oucp->uc_mcontext.edx = 0;
+   oucp->uc_mcontext.eflags &= ~0x0001; /* PSL_C */
+   oucp->uc_sigmask = tst->sig_mask;
+   VG_(memset)(oucp->__spare__, 0, sizeof(oucp->__spare__));
+ 
+   /*
+    * Switch to new one.
+    */
+   restore_mcontext(tst, &ucp->uc_mcontext);
+   tst->sig_mask = ucp->uc_sigmask;
 
    /* Tell the driver not to update the guest state with the "result",
       and set a bogus result to keep it happy. */

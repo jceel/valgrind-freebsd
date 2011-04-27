@@ -3187,16 +3187,6 @@ POST(sys_getcontext)
    POST_MEM_WRITE( ARG1, sizeof(struct vki_ucontext) );
 }
 
-PRE(sys_swapcontext)
-{
-   PRINT("sys_swapcontext ( %#lx, %#lx )", ARG1, ARG2);
-   PRE_REG_READ2(long, "swapcontext",
-                 struct vki_ucontext *, oucp, struct vki_ucontext *, ucp);
-
-   PRE_MEM_READ( "swapcontext(ucp)", ARG2, sizeof(struct vki_ucontext) );
-   PRE_MEM_WRITE( "swapcontext(oucp)", ARG1, sizeof(struct vki_ucontext) );
-}
-
 POST(sys_swapcontext)
 {
    if (SUCCESS)
