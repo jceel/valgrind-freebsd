@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2004-2010 OpenWorks LLP
+   Copyright (C) 2004-2011 OpenWorks LLP
       info@open-works.net
 
    This program is free software; you can redistribute it and/or
@@ -588,7 +588,7 @@ UInt x86g_calculate_eflags_all ( UInt cc_op,
 
 /* CALLED FROM GENERATED CODE: CLEAN HELPER */
 /* Calculate just the carry flag from the supplied thunk parameters. */
-__attribute((regparm(3)))
+VEX_REGPARM(3)
 UInt x86g_calculate_eflags_c ( UInt cc_op, 
                                UInt cc_dep1, 
                                UInt cc_dep2,
@@ -1787,7 +1787,20 @@ VexEmWarn x86g_dirtyhelper_FXRSTOR ( VexGuestX86State* gst, HWord addr )
 
    /* Copy the x87 registers out of the image, into a temporary
       Fpu_State struct. */
-   for (i = 0; i < 14; i++) tmp.env[i] = 0;
+
+   /* LLVM on Darwin turns the following loop into a movaps plus a
+      handful of scalar stores.  This would work fine except for the
+      fact that VEX doesn't keep the stack correctly (16-) aligned for
+      the call, so it segfaults.  Hence, split the loop into two
+      pieces (and pray LLVM doesn't merely glue them back together) so
+      it's composed only of scalar stores and so is alignment
+      insensitive.  Of course this is a kludge of the lamest kind --
+      VEX should be fixed properly. */
+   /* Code that seems to trigger the problem:
+      for (i = 0; i < 14; i++) tmp.env[i] = 0; */
+   for (i = 0; i < 7; i++) tmp.env[i+0] = 0;
+   for (i = 0; i < 7; i++) tmp.env[i+7] = 0;
+   
    for (i = 0; i < 80; i++) tmp.reg[i] = 0;
    /* fill in tmp.reg[0..7] */
    for (stno = 0; stno < 8; stno++) {
