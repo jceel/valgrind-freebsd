@@ -29,7 +29,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -364,7 +364,11 @@ Bool get_elf_symbol_info (
    if (sym_name == (ElfXX_Word)0
        || /* VG_(strlen)(sym_name) == 0 */
           /* equivalent but cheaper ... */
+#if !defined(VGO_freebsd)
           sym_name[0] == 0) {
+#else
+       (sym->st_size == 0 && ELFXX_ST_TYPE(sym->st_info) != STT_FUNC)) {
+#endif
       TRACE_SYMTAB("    ignore -- nameless: %s\n", sym_name);
       return False;
    }
@@ -1555,7 +1559,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             }
          }
 
-         /* Try to get the soname.  If there isn't one, use "NONE".
+         /* Try to get the soname.  If there isn't one, try to use last
+            component of filename instead in DSO case. Otherwise use "NONE".
             The seginfo needs to have some kind of soname in order to
             facilitate writing redirect functions, since all redirect
             specifications require a soname (pattern). */
@@ -1603,6 +1608,19 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 
    /* If, after looking at all the program headers, we still didn't 
       find a soname, add a fake one. */
+   if (di->soname == NULL && ehdr_img->e_type == ET_DYN && di->fsm.filename != NULL) {
+         char *filename = di->fsm.filename;
+         char *p = filename + VG_(strlen)(filename);
+         /* Extract last component. */
+         while (*p != '/' && p > filename)
+            p--;
+         if (*p == '/')
+            p++;
+         if (*p != '\0') {
+            TRACE_SYMTAB("No soname found; using filename instead\n");
+            di->soname = ML_(dinfo_strdup)("di.redi.1", p);
+         }
+   }
    if (di->soname == NULL) {
       TRACE_SYMTAB("No soname found; using (fake) \"NONE\"\n");
       di->soname = "NONE";
@@ -1955,7 +1973,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 
       /* PLT is different on different platforms, it seems. */
 #     if defined(VGP_x86_linux) || defined(VGP_amd64_linux) \
-         || defined(VGP_arm_linux) || defined (VGP_s390x_linux)
+         || defined(VGP_arm_linux) || defined (VGP_s390x_linux) \
+         || defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd)
       /* Accept .plt where mapped as rx (code) */
       if (0 == VG_(strcmp)(name, ".plt")) {
          if (inrx && size > 0 && !di->plt_present) {
@@ -2499,6 +2518,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 #     if !defined(VGP_amd64_linux) \
          && !defined(VGP_s390x_linux) \
          && !defined(VGP_ppc64_linux) \
+         && !defined(VGP_amd64_freebsd) \
          && !defined(VGPV_arm_linux_android)
       if (stab_img && stabstr_img) {
          ML_(read_debuginfo_stabs) ( di, stab_img, stab_sz, 
@@ -2594,7 +2614,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    /* NOTREACHED */
 }
 
-#endif // defined(VGO_linux)
+#endif // defined(VGO_linux) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/
