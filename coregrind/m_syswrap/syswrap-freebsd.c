@@ -205,7 +205,7 @@ static void run_a_thread_NORETURN ( Word tidW )
 	 "popl	%%ebx\n"	/* fake return address */
 	 "popl	%%ebx\n"	/* arg off stack */
          : "=m" (tst->status)
-         : "n" (VgTs_Empty), "n" (__NR_exit), "m" (tst->os_state.exitcode)
+         : "n" (VgTs_Empty), "n" (__NR_thr_exit), "m" (tst->os_state.exitcode)
          : "eax", "ebx"
       );
 #elif defined(VGP_amd64_freebsd)
@@ -217,7 +217,7 @@ static void run_a_thread_NORETURN ( Word tidW )
          "syscall\n"		/* thr_exit(tst->os_state.exitcode) */
 	 "popq	%%rdi\n"	/* fake return address */
          : "=m" (tst->status)
-         : "n" (VgTs_Empty), "n" (__NR_exit), "m" (tst->os_state.exitcode)
+         : "n" (VgTs_Empty), "n" (__NR_thr_exit), "m" (tst->os_state.exitcode)
          : "rax", "rdi"
       );
 #else
