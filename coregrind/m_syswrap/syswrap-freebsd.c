@@ -197,7 +197,7 @@ static void run_a_thread_NORETURN ( Word tidW )
 #if defined(VGP_x86_freebsd)	/* FreeBSD has args on the stack */
       asm volatile (
          "movl	%1, %0\n"	/* set tst->status = VgTs_Empty */
-         "movl	%2, %%eax\n"    /* set %eax = __NR_hr_exit */
+         "movl	%2, %%eax\n"    /* set %eax = __NR_thr_exit */
          "movl	%3, %%ebx\n"    /* set %ebx = tst->os_state.exitcode */
 	 "pushl	%%ebx\n"	/* arg on stack */
 	 "pushl	%%ebx\n"	/* fake return address */
