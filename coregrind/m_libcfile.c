@@ -121,8 +121,9 @@ Bool VG_(resolve_filename) ( Int fd, HChar* buf, Int n_buf )
       bp += kf->kf_structsize;
    }
    if (bp >= eb || *kf->kf_path == '\0')
-      return False;
-   VG_(strncpy)( buf, kf->kf_path, n_buf );
+     VG_(strncpy)( buf, "[unknown]", n_buf );
+   else
+     VG_(strncpy)( buf, kf->kf_path, n_buf );
    return True;
 
 #  elif defined(VGO_aix5)

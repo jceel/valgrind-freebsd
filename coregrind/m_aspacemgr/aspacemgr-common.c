@@ -371,8 +371,9 @@ Bool ML_(am_resolve_filename) ( Int fd, /*OUT*/HChar* buf, Int nbuf )
       bp += kf->kf_structsize;
    }
    if (bp >= eb || *kf->kf_path == '\0')
-      return False;
-   VG_(strncpy)( buf, kf->kf_path, nbuf );
+     VG_(strncpy)( buf, "[unknown]", nbuf );
+   else
+     VG_(strncpy)( buf, kf->kf_path, nbuf );
    return True;
 #elif defined(VGO_aix5)
    I_die_here; /* maybe just return False? */
