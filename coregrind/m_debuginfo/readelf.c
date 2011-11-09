@@ -1446,9 +1446,11 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    TRACE_SYMTAB("shdr:    img %p nent %ld ent_szB %ld\n",
                shdr_img, shdr_nent, shdr_ent_szB);
    TRACE_SYMTAB("rx_map:  avma %#lx  size %lu  foff %lu\n",
-                di->fsm.rx_map_avma, di->fsm.rx_map_size, di->fsm.rx_map_foff);
+                (unsigned long)di->fsm.rx_map_avma, (unsigned long)di->fsm.rx_map_size,
+                (unsigned long)di->fsm.rx_map_foff);
    TRACE_SYMTAB("rw_map:  avma %#lx  size %lu  foff %lu\n",
-                di->fsm.rw_map_avma, di->fsm.rw_map_size, di->fsm.rw_map_foff);
+                di->fsm.rw_map_avma, (unsigned long)di->fsm.rw_map_size,
+                (unsigned long)di->fsm.rw_map_foff);
 
    if (phdr_nent == 0
        || !contained_within(
@@ -1522,7 +1524,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             prev_svma = phdr->p_vaddr;
             if (phdr->p_offset >= di->fsm.rx_map_foff
                 && phdr->p_offset < di->fsm.rx_map_foff + di->fsm.rx_map_size
-                && phdr->p_offset + phdr->p_filesz
+                && phdr->p_offset + phdr->p_filesz 
                    <= di->fsm.rx_map_foff + di->fsm.rx_map_size
                 && (phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
                if (n_rx == N_RX_RW_AREAS) {
@@ -1541,7 +1543,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             else
             if (phdr->p_offset >= di->fsm.rw_map_foff
                 && phdr->p_offset < di->fsm.rw_map_foff + di->fsm.rw_map_size
-                && phdr->p_offset + phdr->p_filesz 
+                && phdr->p_offset + phdr->p_filesz
                    <= di->fsm.rw_map_foff + di->fsm.rw_map_size
                 && (phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
                if (n_rw == N_RX_RW_AREAS) {
@@ -1640,16 +1642,16 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    TRACE_SYMTAB("------ Examining the section headers ------\n");
    TRACE_SYMTAB("rx: at %#lx are mapped foffsets %ld .. %ld\n",
                 di->fsm.rx_map_avma,
-                di->fsm.rx_map_foff,
-                di->fsm.rx_map_foff + di->fsm.rx_map_size - 1 );
+                (unsigned long)di->fsm.rx_map_foff,
+                (unsigned long)(di->fsm.rx_map_foff + di->fsm.rx_map_size - 1) );
    for (i = 0; i < n_rx; i++) {
       TRACE_SYMTAB("rx[%ld]: contains svmas %#lx .. %#lx with bias %#lx\n",
                    i, rx[i].svma_base, rx[i].svma_limit - 1, rx[i].bias );
    }
    TRACE_SYMTAB("rw: at %#lx are mapped foffsets %ld .. %ld\n",
                 di->fsm.rw_map_avma,
-                di->fsm.rw_map_foff, 
-                di->fsm.rw_map_foff + di->fsm.rw_map_size - 1 );
+                (unsigned long)di->fsm.rw_map_foff, 
+                (unsigned long)(di->fsm.rw_map_foff + di->fsm.rw_map_size - 1) );
    for (i = 0; i < n_rw; i++) {
       TRACE_SYMTAB("rw[%ld]: contains svmas %#lx .. %#lx with bias %#lx\n",
                    i, rw[i].svma_base, rw[i].svma_limit - 1, rw[i].bias );
@@ -1689,7 +1691,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
       TRACE_SYMTAB(" [sec %2ld]  %s %s  al%2u  foff %6ld .. %6ld  "
                   "  svma %p  name \"%s\"\n", 
                   i, inrx ? "rx" : "  ", inrw ? "rw" : "  ", alyn,
-                  foff, foff+size-1, (void*)svma, name );
+                  (unsigned long)foff, (unsigned long)(foff+size-1),
+                  (void*)svma, name );
 
       /* Check for sane-sized segments.  SHT_NOBITS sections have zero
          size in the file. */
