@@ -1524,7 +1524,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             prev_svma = phdr->p_vaddr;
             if (phdr->p_offset >= di->fsm.rx_map_foff
                 && phdr->p_offset < di->fsm.rx_map_foff + di->fsm.rx_map_size
-                && phdr->p_offset + phdr->p_filesz 
+                && phdr->p_offset + phdr->p_filesz
                    <= di->fsm.rx_map_foff + di->fsm.rx_map_size
                 && (phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
                if (n_rx == N_RX_RW_AREAS) {
@@ -1543,7 +1543,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             else
             if (phdr->p_offset >= di->fsm.rw_map_foff
                 && phdr->p_offset < di->fsm.rw_map_foff + di->fsm.rw_map_size
-                && phdr->p_offset + phdr->p_filesz
+                && ((phdr->p_offset + phdr->p_filesz) & ~(VKI_PAGE_SIZE - 1))
                    <= di->fsm.rw_map_foff + di->fsm.rw_map_size
                 && (phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
                if (n_rw == N_RX_RW_AREAS) {
