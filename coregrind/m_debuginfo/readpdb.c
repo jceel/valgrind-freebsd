@@ -2440,6 +2440,7 @@ Bool ML_(read_pdb_debug_info)(
    return True;
 }
 
+
 /* Examine a PE file to see if it states the path of an associated PDB
    file; if so return that.  Caller must deallocate with
    ML_(dinfo_free).
