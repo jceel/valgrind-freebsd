@@ -180,6 +180,7 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_freebsd)
  STRRCHR(VG_Z_LIBC_SONAME,   strrchr)
+ STRRCHR(VG_Z_LIBC_SONAME,   rindex)
  STRRCHR(VG_Z_LD_ELF_SO_1, strrchr)
  STRRCHR(VG_Z_LD_ELF32_SO_1, strrchr)
 
@@ -222,6 +223,7 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_freebsd)
  STRCHR(VG_Z_LIBC_SONAME,          strchr)
+ STRCHR(VG_Z_LIBC_SONAME,          index)
  STRCHR(VG_Z_LD_ELF_SO_1, strchr)
  STRCHR(VG_Z_LD_ELF32_SO_1, strchr)
 
