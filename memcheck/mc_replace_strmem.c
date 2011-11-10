@@ -304,7 +304,7 @@ static inline void my_exit ( int x )
       return dst_orig; \
    }
 
-#if defined(VGO_linux)
+#elif defined(VGO_linux)
  STRNCAT(VG_Z_LIBC_SONAME, strncat)
 
 #if defined(VGO_freebsd)
