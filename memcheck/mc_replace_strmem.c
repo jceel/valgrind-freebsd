@@ -307,6 +307,9 @@ static inline void my_exit ( int x )
 #if defined(VGO_linux)
  STRNCAT(VG_Z_LIBC_SONAME, strncat)
 
+#if defined(VGO_freebsd)
+ STRNCAT(VG_Z_LIBC_SONAME, strncat)
+
 #elif defined(VGO_darwin)
  //STRNCAT(VG_Z_LIBC_SONAME, strncat)
  //STRNCAT(VG_Z_DYLD,        strncat)
