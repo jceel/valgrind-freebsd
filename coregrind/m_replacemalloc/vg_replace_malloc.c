@@ -791,6 +791,9 @@ static void init(void);
 #if defined(VGO_linux)
  MEMALIGN(VG_Z_LIBC_SONAME, memalign);
 
+#elif defined(VGO_freebsd)
+ MEMALIGN(VG_Z_LIBC_SONAME, memalign);
+
 #elif defined(VGO_darwin)
  MEMALIGN(VG_Z_LIBC_SONAME, memalign);
  ZONEMEMALIGN(VG_Z_LIBC_SONAME, malloc_zone_memalign);
