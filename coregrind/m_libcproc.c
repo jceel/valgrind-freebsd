@@ -475,14 +475,6 @@ Int VG_(gettid)(void)
       tid = sr_Res(VG_(do_syscall0)(__NR_getpid));
    return tid;
    
-#  elif defined(VGO_aix5)
-   SysRes res;
-   Int    r;
-   vg_assert(__NR_AIX5__thread_self != __NR_AIX5_UNKNOWN);
-   res = VG_(do_syscall0)(__NR_AIX5__thread_self);
-   r = sr_Res(res);
-   return r;
-
 #  elif defined(VGO_darwin)
    // Darwin's gettid syscall is something else.
    // Use Mach thread ports for lwpid instead.
