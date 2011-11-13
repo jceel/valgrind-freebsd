@@ -73,10 +73,6 @@
    x86    eax +4   +8   +12  +16  +20  +24  +28  +32  edx:eax, eflags.c
    amd64  rax rdi  rsi  rdx  rcx  r8   r9   +8   +16  rdx:rax, rflags.c
 
-   AIX:
-   ppc32  r2  r3   r4   r5   r6   r7   r8   r9   r10  r3(res),r4(err)
-   ppc64  r2  r3   r4   r5   r6   r7   r8   r9   r10  r3(res),r4(err)
-
    On s390x the svc instruction is used for system calls. The system call
    number is encoded in the instruction (8 bit immediate field). Since Linux
    2.6 it is also allowed to use svc 0 with the system call number in r1.
