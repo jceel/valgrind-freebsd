@@ -1715,7 +1715,7 @@ PRE(sys_sched_yield)
    PRINT("sched_yield()");
    PRE_REG_READ0(long, "sched_yield");
 }
-
+#endif
 
 PRE(sys_sched_get_priority_max)
 {
@@ -1729,6 +1729,7 @@ PRE(sys_sched_get_priority_min)
    PRE_REG_READ1(long, "sched_get_priority_min", int, policy);
 }
 
+#if 0
 PRE(sys_sched_setaffinity)
 {
    PRINT("sched_setaffinity ( %ld, %ld, %#lx )", ARG1, ARG2, ARG3);
@@ -3770,8 +3771,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 // BSDX_(__NR_sched_getscheduler,	sys_sched_getscheduler),	// 330
    BSDX_(__NR_sched_yield,		sys_sched_yield),		// 331
 
-// BSDX_(__NR_sched_get_priority_max,	sys_sched_get_priority_max),	// 332
-// BSDX_(__NR_sched_get_priority_min,	sys_sched_get_priority_min),	// 333
+   BSDX_(__NR_sched_get_priority_max,	sys_sched_get_priority_max),	// 332
+   BSDX_(__NR_sched_get_priority_min,	sys_sched_get_priority_min),	// 333
 // BSDXY(__NR_sched_rr_get_interval,	sys_sched_rr_get_interval),	// 334
    BSDX_(__NR_utrace,			sys_utrace),			// 335
 
