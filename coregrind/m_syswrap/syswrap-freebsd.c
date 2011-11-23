@@ -3352,6 +3352,231 @@ POST(sys_ioctl)
 	 POST_MEM_WRITE(ARG3, size);
 }
 
+PRE(sys_ptrace)
+{
+   struct vki_ptrace_io_desc *io_desc;
+   PRINT("sys_ptrace ( %ld, %ld, 0x%lx, %ld)", ARG1, ARG2, ARG3, ARG4);
+
+   PRE_REG_READ4(int, "ptrace", int, request, int, pid, char *, addr, int, data);
+
+   switch (ARG1) {
+      case VKI_PTRACE_TRACEME:
+         break;
+      case VKI_PTRACE_READ_I:
+      case VKI_PTRACE_READ_D:
+         break;
+
+      case VKI_PTRACE_WRITE_I:
+      case VKI_PTRACE_WRITE_D:
+         break;
+
+      case VKI_PTRACE_IO:
+         PRE_MEM_READ("ptrace", ARG3, sizeof(struct vki_ptrace_io_desc));
+         io_desc = (struct vki_ptrace_io_desc *)ARG3;
+         switch (io_desc->piod_op) {
+            case VKI_PIOD_READ_D:
+            case VKI_PIOD_READ_I:
+               PRE_MEM_WRITE( "ptrace", (UWord)io_desc->piod_addr, io_desc->piod_len);
+               break;
+            case VKI_PIOD_WRITE_D:
+            case VKI_PIOD_WRITE_I:
+               PRE_MEM_READ( "ptrace", (UWord)io_desc->piod_addr, io_desc->piod_len);
+               break;
+         }
+         break;
+
+      case VKI_PTRACE_CONTINUE:
+         break;
+
+      case VKI_PTRACE_STEP:
+         break;
+
+      case VKI_PTRACE_KILL:
+         break;
+
+      case VKI_PTRACE_ATTACH:
+         break;
+
+      case VKI_PTRACE_DETACH:
+         break;
+
+      case VKI_PTRACE_GETREGS:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(struct vki_reg_struct));
+         break;
+
+      case VKI_PTRACE_SETREGS:
+         PRE_MEM_READ( "ptrace", ARG3, sizeof(struct vki_reg_struct));
+         break;
+
+      case VKI_PTRACE_GETFPREGS:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(struct vki_fpreg));
+         break;
+
+      case VKI_PTRACE_SETFPREGS:
+         PRE_MEM_READ( "ptrace", ARG3, sizeof(struct vki_fpreg));
+         break;
+
+      case VKI_PTRACE_GETDBREGS:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(struct vki_dbreg));
+         break;
+
+      case VKI_PTRACE_SETDBREGS:
+         PRE_MEM_READ( "ptrace", ARG3, sizeof(struct vki_dbreg));
+         break;
+
+      case VKI_PTRACE_LWPINFO:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(struct vki_ptrace_lwpinfo));
+         break;
+
+      case VKI_PTRACE_GETNUMLWPS:
+         break;
+
+      case VKI_PTRACE_GETLWPLIST:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(vki_lwpid_t) * ARG4);
+         break;
+
+      case VKI_PTRACE_SETSTEP:
+         break;
+
+      case VKI_PTRACE_CLEARSTEP:
+         break;
+
+      case VKI_PTRACE_SUSPEND:
+         break;
+
+      case VKI_PTRACE_RESUME:
+         break;
+
+      case VKI_PTRACE_TO_SCE:
+         break;
+
+      case VKI_PTRACE_TO_SCX:
+         break;
+
+      case VKI_PTRACE_SYSCALL:
+         break;
+
+      case VKI_PTRACE_VM_TIMESTAMP:
+         break;
+
+      case VKI_PTRACE_VM_ENTRY:
+         PRE_MEM_WRITE( "ptrace", ARG3, sizeof(struct vki_ptrace_vm_entry));
+         break;
+   }
+}
+
+POST(sys_ptrace)
+{
+   struct vki_ptrace_io_desc *io_desc;
+
+   switch (ARG1) {
+      case VKI_PTRACE_TRACEME:
+         break;
+      case VKI_PTRACE_READ_I:
+      case VKI_PTRACE_READ_D:
+         break;
+
+      case VKI_PTRACE_WRITE_I:
+      case VKI_PTRACE_WRITE_D:
+         break;
+
+      case VKI_PTRACE_IO:
+         io_desc = (struct vki_ptrace_io_desc *)ARG3;
+         switch (io_desc->piod_op) {
+            case VKI_PIOD_READ_D:
+            case VKI_PIOD_READ_I:
+               if (RES != -1)
+                  POST_MEM_WRITE((UWord)io_desc->piod_addr, io_desc->piod_len);
+               break;
+            case VKI_PIOD_WRITE_D:
+            case VKI_PIOD_WRITE_I:
+               break;
+         }
+         break;
+
+      case VKI_PTRACE_CONTINUE:
+         break;
+
+      case VKI_PTRACE_STEP:
+         break;
+
+      case VKI_PTRACE_KILL:
+         break;
+
+      case VKI_PTRACE_ATTACH:
+         break;
+
+      case VKI_PTRACE_DETACH:
+         break;
+
+      case VKI_PTRACE_GETREGS:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(struct vki_reg_struct));
+         break;
+
+      case VKI_PTRACE_SETREGS:
+         break;
+
+      case VKI_PTRACE_GETFPREGS:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(struct vki_fpreg));
+         break;
+
+      case VKI_PTRACE_SETFPREGS:
+         break;
+
+      case VKI_PTRACE_GETDBREGS:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(struct vki_dbreg));
+         break;
+
+      case VKI_PTRACE_SETDBREGS:
+         break;
+
+      case VKI_PTRACE_LWPINFO:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(struct vki_ptrace_lwpinfo));
+         break;
+
+      case VKI_PTRACE_GETNUMLWPS:
+         break;
+
+      case VKI_PTRACE_GETLWPLIST:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(vki_lwpid_t) * RES);
+         break;
+
+      case VKI_PTRACE_SETSTEP:
+         break;
+
+      case VKI_PTRACE_CLEARSTEP:
+         break;
+
+      case VKI_PTRACE_SUSPEND:
+         break;
+
+      case VKI_PTRACE_RESUME:
+         break;
+
+      case VKI_PTRACE_TO_SCE:
+         break;
+
+      case VKI_PTRACE_TO_SCX:
+         break;
+
+      case VKI_PTRACE_SYSCALL:
+         break;
+
+      case VKI_PTRACE_VM_TIMESTAMP:
+         break;
+
+      case VKI_PTRACE_VM_ENTRY:
+         if (RES != -1)
+            POST_MEM_WRITE(ARG3, sizeof(struct vki_ptrace_vm_entry));
+         break;
+   }
+}
+
 #undef PRE
 #undef POST
 
@@ -3388,7 +3613,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    GENX_(__NR_getuid,			sys_getuid),			// 24
    GENX_(__NR_geteuid,			sys_geteuid),			// 25
-// BSDXY(__NR_ptrace,			sys_ptrace),			// 26
+   BSDXY(__NR_ptrace,			sys_ptrace),			// 26
    BSDXY(__NR_recvmsg,			sys_recvmsg),			// 27
 
    BSDX_(__NR_sendmsg,			sys_sendmsg),			// 28
