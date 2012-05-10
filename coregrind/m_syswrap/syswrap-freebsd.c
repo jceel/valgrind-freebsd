@@ -1876,7 +1876,7 @@ PRE(sys_thr_kill)
    *flags |= SfPollAfter;
 
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill: sending signal %ld to tid %ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill: sending signal %ld to tid %ld\n",
                    ARG2, ARG1);
 
    /* If we're sending SIGKILL, check to see if the target is one of
@@ -1900,7 +1900,7 @@ PRE(sys_thr_kill)
 POST(sys_thr_kill)
 {
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill: sent signal %ld to tid %ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill: sent signal %ld to tid %ld\n",
                    ARG2, ARG1);
 }
 PRE(sys_thr_kill2)
@@ -1916,7 +1916,7 @@ PRE(sys_thr_kill2)
    *flags |= SfPollAfter;
 
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill2: sending signal %ld to pid %ld/%ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill2: sending signal %ld to pid %ld/%ld\n",
                    ARG3, ARG1, ARG2);
 
    /* If we're sending SIGKILL, check to see if the target is one of
@@ -1940,7 +1940,7 @@ PRE(sys_thr_kill2)
 POST(sys_thr_kill2)
 {
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill2: sent signal %ld to pid %ld/%ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill2: sent signal %ld to pid %ld/%ld\n",
                    ARG3, ARG1, ARG2);
 }
 
