@@ -259,8 +259,15 @@ PRE(sys_rfork)
 PRE(sys_sigreturn)
 {
    ThreadState* tst;
+   struct vki_ucontext *uc;
    int rflags;
-   PRINT("sigreturn ( )");
+
+   PRINT("sys_sigreturn ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "sigreturn",
+                 struct vki_ucontext *, ucp);
+
+   PRE_MEM_READ( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
 
    vg_assert(VG_(is_valid_tid)(tid));
    vg_assert(tid >= 1 && tid < VG_N_THREADS);
@@ -271,6 +278,12 @@ PRE(sys_sigreturn)
    tst = VG_(get_ThreadState)(tid);
    tst->arch.vex.guest_RSP -= sizeof(Addr);
 
+   uc = (struct vki_ucontext *)ARG1;
+   if (uc == NULL || uc->uc_mcontext.len != sizeof(uc->uc_mcontext)) {
+      SET_STATUS_Failure(VKI_EINVAL);
+      return;
+   }
+ 
    /* This is only so that the EIP is (might be) useful to report if
       something goes wrong in the sigreturn */
    ML_(fixup_guest_state_to_restart_syscall)(&tst->arch);
@@ -285,6 +298,12 @@ PRE(sys_sigreturn)
    rflags = LibVEX_GuestAMD64_get_rflags(&tst->arch.vex);
    SET_STATUS_from_SysRes( VG_(mk_SysRes_amd64_freebsd)( tst->arch.vex.guest_RAX,
        tst->arch.vex.guest_RDX, (rflags & 1) != 0 ? True : False) );
+
+   /*
+    * Signal handler might have changed the signal mask.  Respect that.
+    */
+   tst->sig_mask = uc->uc_sigmask;
+   tst->tmp_sig_mask = uc->uc_sigmask;
 
    /* Tell the driver not to update the guest state with the "result",
       and set a bogus result to keep it happy. */
