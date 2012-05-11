@@ -1978,12 +1978,15 @@ struct vki_kinfo_file {
 // From sys/sysctl.h (and related)
 //----------------------------------------------------------------------
 
-#define VKI_CTL_KERN         1
-#define VKI_CTL_HW           6
-#define VKI_KERN_PROC        14
-#define VKI_KERN_PROC_VMMAP  32
-#define VKI_KERN_PROC_FILEDESC 33
-#define VKI_HW_MACHINE       1
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+#define VKI_CTL_KERN         CTL_KERN
+#define VKI_CTL_HW           CTL_HW
+#define VKI_KERN_PROC        KERN_PROC
+#define VKI_KERN_PROC_VMMAP  KERN_PROC_VMMAP
+#define VKI_KERN_PROC_FILEDESC KERN_PROC_FILEDESC
+#define VKI_HW_MACHINE       HW_MACHINE
 
 //----------------------------------------------------------------------
 // From sys/thr.h
