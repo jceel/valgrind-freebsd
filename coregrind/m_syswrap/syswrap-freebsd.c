@@ -3785,7 +3785,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDXY(__NR_sigaction4,		sys_sigaction4),		// 342
    BSDXY(__NR_sigpending,		sys_sigpending),		// 343
 
-   BSDX_(__NR_sigreturn,		sys_sigreturn),			// 344
+//   BSDX_(__NR_sigreturn4,		sys_sigreturn4),			// 344
    BSDXY(__NR_sigtimedwait,		sys_sigtimedwait),		// 345
    BSDXY(__NR_sigwaitinfo,		sys_sigwaitinfo),		// 346
    BSDXY(__NR___acl_get_file,		sys___acl_get_file),		// 347
@@ -3876,7 +3876,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // __mac_execve							   415
 
    BSDXY(__NR_sigaction,		sys_sigaction),			// 416
-   //!sigreturn								   417
+   BSDX_(__NR_sigreturn,		sys_sigreturn),			// 417
    // __xstat								   418
    // __xfstat								   419
 
@@ -3990,6 +3990,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDXY(__NR___semctl,			sys___semctl),			// 510
    BSDXY(__NR_shmctl,			sys_shmctl),			// 512
 
+   BSDX_(__NR_fake_sigreturn,		sys_fake_sigreturn),		// 1000, fake sigreturn
 
 };
 

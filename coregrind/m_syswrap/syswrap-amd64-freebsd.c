@@ -258,6 +258,16 @@ PRE(sys_rfork)
 
 PRE(sys_sigreturn)
 {
+   PRINT("sys_sigreturn ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "sigreturn",
+                 struct vki_ucontext *, ucp);
+
+   PRE_MEM_READ( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
+}
+
+PRE(sys_fake_sigreturn)
+{
    ThreadState* tst;
    struct vki_ucontext *uc;
    int rflags;
