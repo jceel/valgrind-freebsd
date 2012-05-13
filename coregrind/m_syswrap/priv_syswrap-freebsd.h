@@ -178,6 +178,7 @@ DECL_TEMPLATE(freebsd, sys_sigsuspend);
 DECL_TEMPLATE(freebsd, sys_sigaction);
 DECL_TEMPLATE(freebsd, sys_sigpending);
 DECL_TEMPLATE(freebsd, sys_sigreturn);
+DECL_TEMPLATE(freebsd, sys_fake_sigreturn);
 DECL_TEMPLATE(freebsd, sys_sigtimedwait);
 DECL_TEMPLATE(freebsd, sys_sigwaitinfo);
 DECL_TEMPLATE(freebsd, sys_getcontext);
