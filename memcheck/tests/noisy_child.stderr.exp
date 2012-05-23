@@ -12,7 +12,7 @@ Invalid write of size 1
    at 0x........: free (vg_replace_malloc.c:...)
    by 0x........: main (noisy_child.c:24)
 
-Invalid free() / delete / delete[]
+Invalid free() / delete / delete[] / realloc()
    at 0x........: free (vg_replace_malloc.c:...)
    by 0x........: do_child_badness (noisy_child.c:10)
    by 0x........: main (noisy_child.c:34)

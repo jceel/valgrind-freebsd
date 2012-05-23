@@ -953,6 +953,10 @@ static inline void my_exit ( int x )
  MEMCMP(VG_Z_LIBC_SONAME, bcmp)
  MEMCMP(VG_Z_LD_SO_1,     bcmp)
 
+#elif defined(VGO_freebsd)
+ MEMCMP(VG_Z_LIBC_SONAME,  memcmp)
+ MEMCMP(VG_Z_LIBC_SONAME,  bcmp)
+
 #elif defined(VGO_darwin)
  //MEMCMP(VG_Z_LIBC_SONAME, memcmp)
  //MEMCMP(VG_Z_LIBC_SONAME, bcmp)
