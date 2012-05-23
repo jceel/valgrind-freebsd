@@ -1877,7 +1877,7 @@ PRE(sys_thr_kill)
    *flags |= SfPollAfter;
 
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill: sending signal %ld to tid %ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill: sending signal %ld to tid %ld\n",
                    ARG2, ARG1);
 
    /* If we're sending SIGKILL, check to see if the target is one of
@@ -1901,7 +1901,7 @@ PRE(sys_thr_kill)
 POST(sys_thr_kill)
 {
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill: sent signal %ld to tid %ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill: sent signal %ld to tid %ld\n",
                    ARG2, ARG1);
 }
 PRE(sys_thr_kill2)
@@ -1917,7 +1917,7 @@ PRE(sys_thr_kill2)
    *flags |= SfPollAfter;
 
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill2: sending signal %ld to pid %ld/%ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill2: sending signal %ld to pid %ld/%ld\n",
                    ARG3, ARG1, ARG2);
 
    /* If we're sending SIGKILL, check to see if the target is one of
@@ -1941,7 +1941,7 @@ PRE(sys_thr_kill2)
 POST(sys_thr_kill2)
 {
    if (VG_(clo_trace_signals))
-      VG_(message)(Vg_DebugMsg, "thr_kill2: sent signal %ld to pid %ld/%ld",
+      VG_(message)(Vg_DebugMsg, "thr_kill2: sent signal %ld to pid %ld/%ld\n",
                    ARG3, ARG1, ARG2);
 }
 
@@ -4011,7 +4011,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDXY(__NR_sigaction4,		sys_sigaction4),		// 342
    BSDXY(__NR_sigpending,		sys_sigpending),		// 343
 
-   BSDX_(__NR_sigreturn,		sys_sigreturn),			// 344
+//   BSDX_(__NR_sigreturn4,		sys_sigreturn4),			// 344
    BSDXY(__NR_sigtimedwait,		sys_sigtimedwait),		// 345
    BSDXY(__NR_sigwaitinfo,		sys_sigwaitinfo),		// 346
    BSDXY(__NR___acl_get_file,		sys___acl_get_file),		// 347
@@ -4102,7 +4102,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // __mac_execve							   415
 
    BSDXY(__NR_sigaction,		sys_sigaction),			// 416
-   //!sigreturn								   417
+   BSDX_(__NR_sigreturn,		sys_sigreturn),			// 417
    // __xstat								   418
    // __xfstat								   419
 
@@ -4216,6 +4216,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDXY(__NR___semctl,			sys___semctl),			// 510
    BSDXY(__NR_shmctl,			sys_shmctl),			// 512
 
+   BSDX_(__NR_fake_sigreturn,		sys_fake_sigreturn),		// 1000, fake sigreturn
 
 };
 

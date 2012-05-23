@@ -694,10 +694,21 @@ PRE(sys_rfork)
 
 PRE(sys_sigreturn)
 {
+   PRINT("sys_sigreturn ( %#lx )", ARG1);
+   PRE_REG_READ1(long, "sigreturn",
+                 struct vki_ucontext *, ucp);
+
+   PRE_MEM_READ( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
+   PRE_MEM_WRITE( "sigreturn(ucp)", ARG1, sizeof(struct vki_ucontext) );
+}
+
+PRE(sys_fake_sigreturn)
+{
    /* See comments on PRE(sys_rt_sigreturn) in syswrap-amd64-linux.c for
       an explanation of what follows. */
 
    ThreadState* tst;
+   struct vki_ucontext *uc;
    PRINT("sys_sigreturn ( )");
 
    vg_assert(VG_(is_valid_tid)(tid));
@@ -709,13 +720,24 @@ PRE(sys_sigreturn)
    tst = VG_(get_ThreadState)(tid);
    tst->arch.vex.guest_ESP -= sizeof(Addr);	/* QQQ should be redundant */
 
+   uc = (struct vki_ucontext *)ARG1;
+   if (uc == NULL || uc->uc_mcontext.len != sizeof(uc->uc_mcontext)) {
+      SET_STATUS_Failure(VKI_EINVAL);
+      return;
+   }
+
    /* This is only so that the EIP is (might be) useful to report if
       something goes wrong in the sigreturn */
    ML_(fixup_guest_state_to_restart_syscall)(&tst->arch);
 
    /* Restore register state from frame and remove it */
-//   VG_(sigframe_destroy)((struct vki_ucontext *)ARG1, tid, False);
    VG_(sigframe_destroy)(tid);
+
+   /*
+    * Signal handler might have changed the signal mask.  Respect that.
+    */
+   tst->sig_mask = uc->uc_sigmask;
+   tst->tmp_sig_mask = uc->uc_sigmask;
 
    /* Tell the driver not to update the guest state with the "result",
       and set a bogus result to keep it happy. */

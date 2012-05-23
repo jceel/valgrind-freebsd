@@ -658,7 +658,7 @@ VG_(x86_freebsd_SUBST_FOR_sigreturn):
 	pushl	%eax
 	pushl	%eax			/* fake return addr */
 /*	movl	0x44(%eax), %gs	; restore %gs, not done by sigreturn */
-        movl    $__NR_sigreturn, %eax
+        movl    $__NR_fake_sigreturn, %eax
         int     $0x80
         ud2
 
@@ -684,7 +684,7 @@ VG_(trampoline_stuff_start):
 VG_(amd64_freebsd_SUBST_FOR_sigreturn):
         /* This is a very specific sequence which GDB uses to
            recognize signal handler frames. */
-        movq    $__NR_sigreturn, %rax
+        movq    $__NR_fake_sigreturn, %rax
         movq	%rsp, %rdi
         addq	$40,%rdi
         syscall

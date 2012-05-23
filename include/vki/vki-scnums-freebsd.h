@@ -256,7 +256,7 @@
 #define	__NR_sigsuspend		341
 #define	__NR_sigaction4		342
 #define	__NR_sigpending		343
-#define	__NR_sigreturn		344
+#define	__NR_sigreturn4		344
 #define	__NR_sigtimedwait	345
 #define	__NR_sigwaitinfo	346
 #define	__NR___acl_get_file	347
@@ -320,7 +320,7 @@
 #define	__NR_extattr_delete_link	414
 #define	__NR___mac_execve	415
 #define	__NR_sigaction		416
-#define	__NR_sigreturn6		417
+#define	__NR_sigreturn		417
 #define	__NR_getcontext		421
 #define	__NR_setcontext		422
 #define	__NR_swapcontext	423
@@ -407,5 +407,7 @@
 #define	__NR_posix_openpt	504
 #define	__NR___semctl		510
 #define	__NR_shmctl		512
+
+#define __NR_fake_sigreturn	1000
 
 #endif /* __VKI_UNISTD_FREEBSD_H */
