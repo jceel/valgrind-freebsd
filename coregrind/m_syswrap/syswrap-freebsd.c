@@ -339,26 +339,27 @@ SysRes ML_(do_fork) ( ThreadId tid )
    VG_(do_atfork_pre)(tid);
 
    res = VG_(do_syscall0)( __NR_fork );
+   
+   if (!sr_isError(res)) {
+      if (sr_Res(res) == 0) {
+         /* child */
+         VG_(do_atfork_child)(tid);
 
-   if (!sr_isError(res) && sr_Res(res) == 0) {
-      /* child */
-      VG_(do_atfork_child)(tid);
+         /* restore signal mask */
+         VG_(sigprocmask)(VKI_SIG_SETMASK, &fork_saved_mask, NULL);
 
-      /* restore signal mask */
-      VG_(sigprocmask)(VKI_SIG_SETMASK, &fork_saved_mask, NULL);
+      } 
+      else { 
+         /* parent */
+         VG_(do_atfork_parent)(tid);
 
-   } 
-   else 
-   if (!sr_isError(res) && sr_Res(res) == 0) {
-      /* parent */
-      VG_(do_atfork_parent)(tid);
+         if (VG_(clo_trace_syscalls))
+	     VG_(printf)("   clone(fork): process %d created child %ld\n",
+                         VG_(getpid)(), sr_Res(res));
 
-      if (VG_(clo_trace_syscalls))
-	  VG_(printf)("   clone(fork): process %d created child %ld\n",
-                      VG_(getpid)(), sr_Res(res));
-
-      /* restore signal mask */
-      VG_(sigprocmask)(VKI_SIG_SETMASK, &fork_saved_mask, NULL);
+         /* restore signal mask */
+         VG_(sigprocmask)(VKI_SIG_SETMASK, &fork_saved_mask, NULL);
+      }
    }
 
    return res;
