@@ -3578,6 +3578,11 @@ POST(sys_ptrace)
    }
 }
 
+PRE(sys_cpuset_setaffinity)
+{
+	PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+}
+
 #undef PRE
 #undef POST
 
@@ -4192,7 +4197,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // cpuset_getid							   486
    // cpuset_getaffinity						   487
 
-   // cpuset_setaffinity						   488
+   BSDX_(__NR_cpuset_setaffinity,	sys_cpuset_setaffinity),	// 488
    BSDX_(__NR_faccessat,		sys_faccessat),			// 489
    BSDX_(__NR_fchmodat,			sys_fchmodat),			// 490
    BSDX_(__NR_fchownat,			sys_fchownat),			// 491
