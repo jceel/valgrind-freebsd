@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2011 Julian Seward 
+   Copyright (C) 2000-2012 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -194,7 +194,17 @@ Int VG_(write) ( Int fd, const void* buf, Int count)
 
 Int VG_(pipe) ( Int fd[2] )
 {
-#  if defined(VGO_linux)
+#  if defined(VGP_mips32_linux)
+   /* __NR_pipe has a strange return convention on mips32-linux. */
+   SysRes res = VG_(do_syscall0)(__NR_pipe);
+   if (!sr_isError(res)) {
+      fd[0] = (Int)sr_Res(res);
+      fd[1] = (Int)sr_ResEx(res);
+      return 0;
+   } else {
+      return -1;
+   }
+#  elif defined(VGO_linux)
    SysRes res = VG_(do_syscall1)(__NR_pipe, (UWord)fd);
    return sr_isError(res) ? -1 : 0;
 #  elif defined(VGO_darwin)
@@ -232,7 +242,7 @@ Off64T VG_(lseek) ( Int fd, Off64T offset, Int whence )
 #    error "Unknown plat"
 #  endif
    /* if you change the error-reporting conventions of this, also
-      change VG_(pread) and all other usage points. */
+      change all usage points. */
 }
 
 
@@ -575,24 +585,47 @@ Int VG_(check_executable)(/*OUT*/Bool* is_setuid,
    return 0;
 }
 
-/* DDD: Note this moves (or at least, is believed to move) the file
-   pointer on Linux but doesn't on Darwin.  This inconsistency should
-   be fixed.  (In other words, why isn't the Linux version implemented
-   in terms of pread()?) */
 SysRes VG_(pread) ( Int fd, void* buf, Int count, OffT offset )
 {
    SysRes res;
-#  if defined(VGO_linux)
-   OffT off = VG_(lseek)( fd, offset, VKI_SEEK_SET);
-   if (off < 0)
-      return VG_(mk_SysRes_Error)( VKI_EINVAL );
-   res = VG_(do_syscall3)(__NR_read, fd, (UWord)buf, count );
+   // on 32 bits platforms, we receive a 32 bits OffT but
+   // we must extend it to pass a long long 64 bits.
+#  if defined(VGP_x86_linux)
+   vg_assert(sizeof(OffT) == 4);
+   res = VG_(do_syscall5)(__NR_pread64, fd, (UWord)buf, count, 
+                          offset, 0); // Little endian long long
+   return res;
+#  elif defined(VGP_arm_linux)
+   vg_assert(sizeof(OffT) == 4);
+   res = VG_(do_syscall5)(__NR_pread64, fd, (UWord)buf, count, 
+                          0, offset); // Big endian long long
+   return res;
+#  elif defined(VGP_ppc32_linux)
+   vg_assert(sizeof(OffT) == 4);
+   res = VG_(do_syscall6)(__NR_pread64, fd, (UWord)buf, count, 
+                          0, // Padding needed on PPC32
+                          0, offset); // Big endian long long
+   return res;
+#  elif defined(VGP_mips32_linux) && VKI_LITTLE_ENDIAN
+   vg_assert(sizeof(OffT) == 4);
+   res = VG_(do_syscall6)(__NR_pread64, fd, (UWord)buf, count, 
+                          0, offset, 0);
+   return res;
+#  elif defined(VGP_mips32_linux) && VKI_BIG_ENDIAN
+   vg_assert(sizeof(OffT) == 4);
+   res = VG_(do_syscall6)(__NR_pread64, fd, (UWord)buf, count, 
+                          0, 0, offset);
+   return res;
+#  elif defined(VGP_amd64_linux) \
+      || defined(VGP_ppc64_linux) || defined(VGP_s390x_linux) 
+   res = VG_(do_syscall4)(__NR_pread64, fd, (UWord)buf, count, offset);
    return res;
 #  elif defined(VGP_amd64_darwin)
+   vg_assert(sizeof(OffT) == 8);
    res = VG_(do_syscall4)(__NR_pread_nocancel, fd, (UWord)buf, count, offset);
    return res;
 #  elif defined(VGP_x86_darwin)
-   /* ppc32-darwin is the same, but with the args inverted */
+   vg_assert(sizeof(OffT) == 8);
    res = VG_(do_syscall5)(__NR_pread_nocancel, fd, (UWord)buf, count, 
                           offset & 0xffffffff, offset >> 32);
    return res;
@@ -824,7 +857,8 @@ Int VG_(socket) ( Int domain, Int type, Int protocol )
    res = VG_(do_syscall2)(__NR_socketcall, VKI_SYS_SOCKET, (UWord)&args);
    return sr_isError(res) ? -1 : sr_Res(res);
 
-#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux)
+#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux) \
+        || defined(VGP_mips32_linux)
    SysRes res;
    res = VG_(do_syscall3)(__NR_socket, domain, type, protocol );
    return sr_isError(res) ? -1 : sr_Res(res);
@@ -862,7 +896,8 @@ Int my_connect ( Int sockfd, struct vki_sockaddr_in* serv_addr, Int addrlen )
    res = VG_(do_syscall2)(__NR_socketcall, VKI_SYS_CONNECT, (UWord)&args);
    return sr_isError(res) ? -1 : sr_Res(res);
 
-#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux)
+#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux) \
+        || defined(VGP_mips32_linux)
    SysRes res;
    res = VG_(do_syscall3)(__NR_connect, sockfd, (UWord)serv_addr, addrlen);
    return sr_isError(res) ? -1 : sr_Res(res);
@@ -900,7 +935,8 @@ Int VG_(write_socket)( Int sd, void *msg, Int count )
    res = VG_(do_syscall2)(__NR_socketcall, VKI_SYS_SEND, (UWord)&args);
    return sr_isError(res) ? -1 : sr_Res(res);
 
-#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux)
+#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux) \
+        || defined(VGP_mips32_linux)
    SysRes res;
    res = VG_(do_syscall6)(__NR_sendto, sd, (UWord)msg, 
                                        count, VKI_MSG_NOSIGNAL, 0,0);
@@ -919,7 +955,8 @@ Int VG_(write_socket)( Int sd, void *msg, Int count )
 Int VG_(getsockname) ( Int sd, struct vki_sockaddr *name, Int *namelen)
 {
 #  if defined(VGP_x86_linux) || defined(VGP_ppc32_linux) \
-      || defined(VGP_ppc64_linux) || defined(VGP_s390x_linux)
+      || defined(VGP_ppc64_linux) || defined(VGP_s390x_linux) \
+      || defined(VGP_mips32_linux)
    SysRes res;
    UWord  args[3];
    args[0] = sd;
@@ -948,7 +985,8 @@ Int VG_(getsockname) ( Int sd, struct vki_sockaddr *name, Int *namelen)
 Int VG_(getpeername) ( Int sd, struct vki_sockaddr *name, Int *namelen)
 {
 #  if defined(VGP_x86_linux) || defined(VGP_ppc32_linux) \
-      || defined(VGP_ppc64_linux) || defined(VGP_s390x_linux)
+      || defined(VGP_ppc64_linux) || defined(VGP_s390x_linux) \
+      || defined(VGP_mips32_linux)
    SysRes res;
    UWord  args[3];
    args[0] = sd;
@@ -989,7 +1027,8 @@ Int VG_(getsockopt) ( Int sd, Int level, Int optname, void *optval,
    res = VG_(do_syscall2)(__NR_socketcall, VKI_SYS_GETSOCKOPT, (UWord)&args);
    return sr_isError(res) ? -1 : sr_Res(res);
 
-#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux)
+#  elif defined(VGP_amd64_linux) || defined(VGP_arm_linux) \
+        || defined(VGP_mips32_linux)
    SysRes res;
    res = VG_(do_syscall5)( __NR_getsockopt,
                            (UWord)sd, (UWord)level, (UWord)optname, 

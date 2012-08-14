@@ -17,9 +17,9 @@
 //     model, if specified, matches the machine
 // - 1 the machine does not provide the asked-for feature or the
 //     cpu model, if specified, does not match the machine
+// - 1 for an unknown cpu model in /proc/cpu_info
 // - 2 if the asked-for feature isn't recognised (this will be the case for
 //     any feature if run on a non-s390x machine).
-// - 2 for an unknown cpu model in /proc/cpu_info
 // - 3 if there was a usage error (it also prints an error message).
 //
 // USAGE:
@@ -84,6 +84,7 @@ model_info models[] = {
    { "2097", "z10-ec" },
    { "2098", "z10-bc" },
    { "2817", "z196"   },
+   { "2818", "z114"   },
 };
 
 
@@ -115,7 +116,6 @@ static model_info *get_host(void)
    model_info *model;
 
    /* Slurp contents of /proc/cpuinfo into FILE_BUF */
-   //fh = open("/proc/cpuinfo", O_RDONLY, S_IRUSR);
    fh = open("/proc/cpuinfo", O_RDONLY, S_IRUSR);
    if (fh < 0) return NULL;
 
@@ -214,6 +214,8 @@ static int go(char *feature, char *cpu)
      match = (facilities & (1ULL << 29));
    } else if (strcmp(feature, "s390x-exrl") == 0 ) {
      match = (facilities & (1ULL << 28));
+   } else if (strcmp(feature, "s390x-etf3") == 0 ) {
+     match = (facilities & (1ULL << (63 - 30)));
    } else {
      return 2;          // Unrecognised feature.
    }
@@ -224,7 +226,7 @@ static int go(char *feature, char *cpu)
    if (cpu == NULL) return 0;
 
    host = get_host();
-   if (host == NULL) return 2;  // unknown model
+   if (host == NULL) return 1;  // unknown model
 
    //   printf("host = %s (%s)\n", host->cpuinfo_name, host->real_name);
 

@@ -6,6 +6,8 @@ dist_noinst_SCRIPTS = \
 	gen-mdg \
 	gsl16test \
 	gsl19test \
+	nightly-build-summary \
+	update-demangler \
 	posixtestsuite-1.5.1-diff-results
 
 EXTRA_DIST = \
@@ -29,6 +31,9 @@ valgrind_listener_CPPFLAGS  = $(AM_CPPFLAGS_PRI) -I$(top_srcdir)/coregrind
 valgrind_listener_CFLAGS    = $(AM_CFLAGS_PRI)
 valgrind_listener_CCASFLAGS = $(AM_CCASFLAGS_PRI)
 valgrind_listener_LDFLAGS   = $(AM_CFLAGS_PRI)
+if VGCONF_PLATVARIANT_IS_ANDROID
+valgrind_listener_CFLAGS    += -static
+endif
 if VGCONF_PLATFORMS_INCLUDE_X86_DARWIN
 valgrind_listener_LDFLAGS   += -Wl,-read_only_relocs -Wl,suppress
 endif

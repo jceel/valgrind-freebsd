@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2011 Julian Seward
+   Copyright (C) 2000-2012 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -86,6 +86,10 @@ extern Int   VG_(clo_sanity_level);
 /* Automatically attempt to demangle C++ names?  default: YES */
 extern Bool  VG_(clo_demangle);
 /* Simulate child processes? default: NO */
+/* Soname synonyms : a string containing a list of pairs
+   xxxxx=yyyyy separated by commas.
+   E.g. --soname-synonyms=somalloc=libtcmalloc*.so*,solibtruc=NONE */
+extern HChar* VG_(clo_soname_synonyms);
 extern Bool  VG_(clo_trace_children);
 /* String containing comma-separated patterns for executable names
    that should not be traced into even when --trace-children=yes */
@@ -126,8 +130,10 @@ extern Char* VG_(clo_fullpath_after)[VG_CLO_MAX_FULLPATH_AFTER];
 extern UChar VG_(clo_trace_flags);
 /* DEBUG: do bb profiling?  default: 00000000 ( == NO ) */
 extern UChar VG_(clo_profile_flags);
-/* DEBUG: if tracing codegen, be quiet until after this bb ( 0 ) */
+/* DEBUG: if tracing codegen, be quiet until after this bb */
 extern Int   VG_(clo_trace_notbelow);
+/* DEBUG: if tracing codegen, be quiet after this bb  */
+extern Int   VG_(clo_trace_notabove);
 /* DEBUG: print system calls?  default: NO */
 extern Bool  VG_(clo_trace_syscalls);
 /* DEBUG: print signal details?  default: NO */
@@ -146,10 +152,25 @@ extern Bool  VG_(clo_debug_dump_line);
 extern Bool  VG_(clo_debug_dump_frames);
 /* DEBUG: print redirection details?  default: NO */
 extern Bool  VG_(clo_trace_redir);
+/* Enable fair scheduling on multicore systems? default: NO */
+enum FairSchedType { disable_fair_sched, enable_fair_sched, try_fair_sched };
+extern enum FairSchedType VG_(clo_fair_sched);
 /* DEBUG: print thread scheduling events?  default: NO */
 extern Bool  VG_(clo_trace_sched);
 /* DEBUG: do heap profiling?  default: NO */
 extern Bool  VG_(clo_profile_heap);
+#define MAX_REDZONE_SZB 128
+// Maximum for the default values for core arenas and for client
+// arena given by the tool.
+// 128 is no special figure, just something not too big
+#define MAX_CLO_REDZONE_SZB 4096
+// We allow the user to increase the redzone size to 4Kb :
+// This allows "off by one" in an array of pages to be detected.
+#define CORE_REDZONE_DEFAULT_SZB 4
+extern Int VG_(clo_core_redzone_size);
+// VG_(clo_redzone_size) has default value -1, indicating to keep
+// the tool provided value.
+extern Int VG_(clo_redzone_size);
 /* DEBUG: display gory details for the k'th most popular error.
    default: Infinity. */
 extern Int   VG_(clo_dump_error);

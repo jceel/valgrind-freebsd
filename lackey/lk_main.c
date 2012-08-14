@@ -7,7 +7,7 @@
    This file is part of Lackey, an example Valgrind tool that does
    some simple program measurement and tracing.
 
-   Copyright (C) 2002-2011 Nicholas Nethercote
+   Copyright (C) 2002-2012 Nicholas Nethercote
       njn@valgrind.org
 
    This program is free software; you can redistribute it and/or
@@ -301,7 +301,7 @@ typedef enum { OpLoad=0, OpStore=1, OpAlu=2 } Op;
 
 /* --- Types --- */
 
-#define N_TYPES 10
+#define N_TYPES 11
 
 static Int type2index ( IRType ty )
 {
@@ -316,6 +316,7 @@ static Int type2index ( IRType ty )
       case Ity_F64:     return 7;
       case Ity_F128:    return 8;
       case Ity_V128:    return 9;
+      case Ity_V256:    return 10;
       default: tl_assert(0);
    }
 }
@@ -333,6 +334,7 @@ static HChar* nameOfTypeIndex ( Int i )
       case 7: return "F64";  break;
       case 8: return "F128";  break;
       case 9: return "V128"; break;
+      case 10: return "V256"; break;
       default: tl_assert(0);
    }
 }
@@ -967,7 +969,7 @@ static void lk_pre_clo_init(void)
    VG_(details_version)         (NULL);
    VG_(details_description)     ("an example Valgrind tool");
    VG_(details_copyright_author)(
-      "Copyright (C) 2002-2011, and GNU GPL'd, by Nicholas Nethercote.");
+      "Copyright (C) 2002-2012, and GNU GPL'd, by Nicholas Nethercote.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 200 );
 

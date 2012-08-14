@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2004-2011 OpenWorks LLP
+   Copyright (C) 2004-2012 OpenWorks LLP
       info@open-works.net
 
    This program is free software; you can redistribute it and/or
@@ -2670,6 +2670,9 @@ ULong x86g_use_seg_selector ( HWord ldt, HWord gdt,
 /* VISIBLE TO LIBVEX CLIENT */
 void LibVEX_GuestX86_initialise ( /*OUT*/VexGuestX86State* vex_state )
 {
+   vex_state->host_EvC_FAILADDR = 0;
+   vex_state->host_EvC_COUNTER = 0;
+
    vex_state->guest_EAX = 0;
    vex_state->guest_ECX = 0;
    vex_state->guest_EDX = 0;
@@ -2726,9 +2729,11 @@ void LibVEX_GuestX86_initialise ( /*OUT*/VexGuestX86State* vex_state )
    vex_state->guest_SC_CLASS = 0;
    vex_state->guest_IP_AT_SYSCALL = 0;
 
-   vex_state->padding1 = 0;
-   vex_state->padding2 = 0;
-   vex_state->padding3 = 0;
+   Int i;
+   for (i = 0; i < sizeof(vex_state->padding)
+                   / sizeof(vex_state->padding[0]); i++) {
+      vex_state->padding[i] = 0;
+   }
 }
 
 
