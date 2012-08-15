@@ -5,9 +5,13 @@
 #----------------------------------------------------------------------------
 # Shell scripts that should fail
 #----------------------------------------------------------------------------
+
 LC_ALL=C
-echo "Execute a directory"
-./x86/
+os=$(uname -s)
+if [ "${os}" != "FreeBSD" ]; then
+	echo "Execute a directory"
+	./x86/
+fi
 
 echo "Execute a non-executable file"
 ./shell.vgtest

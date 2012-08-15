@@ -29,7 +29,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -366,7 +366,11 @@ Bool get_elf_symbol_info (
    if (sym_name == (ElfXX_Word)0
        || /* VG_(strlen)(sym_name) == 0 */
           /* equivalent but cheaper ... */
+#if !defined(VGO_freebsd)
           sym_name[0] == 0) {
+#else
+       (sym->st_size == 0 && ELFXX_ST_TYPE(sym->st_info) != STT_FUNC)) {
+#endif
       TRACE_SYMTAB("    ignore -- nameless: %s\n", sym_name);
       return False;
    }
@@ -1491,13 +1495,13 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rx)
          TRACE_SYMTAB("rx_map:  avma %#lx   size %lu  foff %lu\n",
-                      map->avma, map->size, map->foff);
+                      map->avma, (unsigned long)map->size, (unsigned long)map->foff);
    }
    for (i = 0; i < VG_(sizeXA)(di->fsm.maps); i++) {
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rw)
          TRACE_SYMTAB("rw_map:  avma %#lx   size %lu  foff %lu\n",
-                      map->avma, map->size, map->foff);
+                      map->avma, (unsigned long)map->size, (unsigned long)map->foff);
    }
 
    if (phdr_nent == 0
@@ -1577,7 +1581,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
                   if (   (map->rx || map->rw)
                       && phdr->p_offset >= map->foff
                       && phdr->p_offset <  map->foff + map->size
-                      && phdr->p_offset + phdr->p_filesz <= map->foff
+                      && ((phdr->p_offset + phdr->p_filesz) & ~(VKI_PAGE_SIZE - 1)) <= map->foff
                                                             + map->size) {
                      RangeAndBias item;
                      item.svma_base  = phdr->p_vaddr;
@@ -1608,7 +1612,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             }
          }
 
-         /* Try to get the soname.  If there isn't one, use "NONE".
+         /* Try to get the soname.  If there isn't one, try to use last
+            component of filename instead in DSO case. Otherwise use "NONE".
             The seginfo needs to have some kind of soname in order to
             facilitate writing redirect functions, since all redirect
             specifications require a soname (pattern). */
@@ -1655,6 +1660,19 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 
    /* If, after looking at all the program headers, we still didn't 
       find a soname, add a fake one. */
+   if (di->soname == NULL && ehdr_img->e_type == ET_DYN && di->fsm.filename != NULL) {
+         char *filename = di->fsm.filename;
+         char *p = filename + VG_(strlen)(filename);
+         /* Extract last component. */
+         while (*p != '/' && p > filename)
+            p--;
+         if (*p == '/')
+            p++;
+         if (*p != '\0') {
+            TRACE_SYMTAB("No soname found; using filename instead\n");
+            di->soname = ML_(dinfo_strdup)("di.redi.1", p);
+         }
+   }
    if (di->soname == NULL) {
       TRACE_SYMTAB("No soname found; using (fake) \"NONE\"\n");
       di->soname = ML_(dinfo_strdup)("di.redi.2", "NONE");
@@ -1724,7 +1742,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
       TRACE_SYMTAB(" [sec %2ld]  %s %s  al%2u  foff %6ld .. %6ld  "
                   "  svma %p  name \"%s\"\n", 
                   i, inrx ? "rx" : "  ", inrw ? "rw" : "  ", alyn,
-                  foff, foff+size-1, (void*)svma, name );
+                  (unsigned long)foff, (unsigned long)(foff+size-1),
+                  (void*)svma, name );
 
       /* Check for sane-sized segments.  SHT_NOBITS sections have zero
          size in the file. */
@@ -2009,6 +2028,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
       /* PLT is different on different platforms, it seems. */
 #     if defined(VGP_x86_linux) || defined(VGP_amd64_linux) \
          || defined(VGP_arm_linux) || defined (VGP_s390x_linux) \
+         || defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd) \
          || defined(VGP_mips32_linux)
       /* Accept .plt where mapped as rx (code) */
       if (0 == VG_(strcmp)(name, ".plt")) {
@@ -2390,7 +2410,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
                   struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, j);
                   if (   phdr->p_offset >= map->foff
                       && phdr->p_offset <  map->foff + map->size
-                      && phdr->p_offset + phdr->p_filesz < map->foff
+                      && ((phdr->p_offset + phdr->p_filesz) & ~(VKI_PAGE_SIZE - 1)) < map->foff
                                                            + map->size) {
                      if (map->rx && rx_dsvma_limit == 0) {
                         rx_dsvma_limit = phdr->p_vaddr + phdr->p_memsz;
@@ -2659,6 +2679,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 #     if !defined(VGP_amd64_linux) \
          && !defined(VGP_s390x_linux) \
          && !defined(VGP_ppc64_linux) \
+         && !defined(VGP_amd64_freebsd) \
          && !defined(VGPV_arm_linux_android) \
          && !defined(VGPV_x86_linux_android)
       if (stab_img && stabstr_img) {
@@ -2765,7 +2786,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    /* NOTREACHED */
 }
 
-#endif // defined(VGO_linux)
+#endif // defined(VGO_linux) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/
