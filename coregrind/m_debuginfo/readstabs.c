@@ -37,7 +37,7 @@
 /* "on Linux (except android), or on Darwin" */
 #if (defined(VGO_linux) && \
     !(defined(VGPV_arm_linux_android) || defined(VGPV_x86_linux_android)) \
-    || defined(VGO_darwin))
+    || defined(VGO_darwin) || defined(VGO_freebsd))
 
 #include "pub_core_basics.h"
 #include "pub_core_debuginfo.h"
@@ -60,6 +60,9 @@
 #  if VG_WORDSIZE == 8
 #     define nlist nlist_64
 #  endif
+#elif defined(VGO_freebsd)
+#  include <a.out.h>
+#  include <sys/nlist_aout.h>
 #else
 #  error "Unknown OS"
 #endif
@@ -390,7 +393,7 @@ void ML_(read_debuginfo_stabs) ( DebugInfo* di,
 }
 
 #endif /* (defined(VGO_linux) && !defined(VGPV_*_linux_android)) \
-          || defined(VGO_darwin) */
+          || defined(VGO_darwin) || defined(VGO_freebsd) */
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

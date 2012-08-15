@@ -56,7 +56,7 @@
 #include "priv_storage.h"
 #include "priv_readdwarf.h"
 #include "priv_readstabs.h"
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 # include "priv_readelf.h"
 # include "priv_readdwarf3.h"
 # include "priv_readpdb.h"
@@ -536,10 +536,6 @@ static void check_CFSI_related_invariants ( DebugInfo* di )
       return;
    }
 
-   /* invariant (2) - cont. */
-   if (di->cfsi)
-      vg_assert(cfsi_fits);
-
    /* invariants (3) and (4) */
    if (di->cfsi) {
       vg_assert(di->cfsi_used > 0);
@@ -586,7 +582,7 @@ void VG_(di_initialise) ( void )
 /*---                                                        ---*/
 /*--------------------------------------------------------------*/
 
-#if defined(VGO_linux)  ||  defined(VGO_darwin)
+#if defined(VGO_linux)  ||  defined(VGO_darwin)  ||  defined(VGO_freebsd)
 
 /* The debug info system is driven by notifications that a text
    segment has been mapped in, or unmapped, or when sections change
@@ -624,7 +620,7 @@ static ULong di_notify_ACHIEVE_ACCEPT_STATE ( struct _DebugInfo* di )
    discard_DebugInfos_which_overlap_with( di );
 
    /* .. and acquire new info. */
-#  if defined(VGO_linux)
+#  if defined(VGO_linux) || defined(VGO_freebsd)
    ok = ML_(read_elf_debug_info)( di );
 #  elif defined(VGO_darwin)
    ok = ML_(read_macho_debug_info)( di );
@@ -876,7 +872,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV, Int use_fd )
    vg_assert(sr_Res(preadres) > 0 && sr_Res(preadres) <= sizeof(buf1k) );
 
    /* We're only interested in mappings of object files. */
-#  if defined(VGO_linux)
+#  if defined(VGO_linux) || defined(VGO_freebsd)
    if (!ML_(is_elf_object_file)( buf1k, (SizeT)sr_Res(preadres), False ))
       return 0;
 #  elif defined(VGO_darwin)
@@ -1257,7 +1253,7 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
    if (pdbname) ML_(dinfo_free)(pdbname);
 }
 
-#endif /* defined(VGO_linux) || defined(VGO_darwin) */
+#endif /* defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) */
 
 
 /*------------------------------------------------------------*/
@@ -1570,6 +1566,8 @@ Vg_FnNameKind VG_(get_fnname_kind) ( Char* name )
 #      if defined(VGO_linux)
        VG_STREQ("__libc_start_main",  name) ||  // glibc glibness
        VG_STREQ("generic_start_main", name) ||  // Yellow Dog doggedness
+#      elif defined(VGO_freebsd)
+       VG_STREQ("_start", name) || // FreeBSD libc
 #      elif defined(VGO_darwin)
        // See readmacho.c for an explanation of this.
        VG_STREQ("start_according_to_valgrind", name) ||  // Darwin, darling
