@@ -1146,12 +1146,12 @@ struct vki_pollfd {
 // From sys/kevent.h
 //----------------------------------------------------------------------
 struct vki_kevent {
-	vki_uint32_t   ident;
+	vki_uintptr_t  ident;
 	vki_int16_t    filter;
 	vki_uint16_t   flags;
 	vki_uint32_t   fflags;
-	vki_uint32_t   data;
-	vki_uint32_t   udata;
+	vki_intptr_t   data;
+	void           *udata;
 };
 
 
