@@ -254,10 +254,11 @@
 
 #endif
 
-/* --- Soname of the GNU C++ library. --- */
+/* --- Sonames of the GNU C++ library. --- */
 
 // Valid on all platforms(?)
 #define  VG_Z_LIBSTDCXX_SONAME  libstdcZpZpZa           // libstdc++*
+#define  VG_Z_LIBSUPCXX_SONAME  libsupcZpZpZa           // libsupc++*
 
 /* --- Soname of the pthreads library. --- */
 
