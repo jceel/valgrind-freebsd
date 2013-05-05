@@ -32,4 +32,62 @@
    drd:ConflictingAccess
    fun:pthread_exit
 }
-
+{
+   HELGRIND-PTHREAD-EXIT1
+   Helgrind:Race
+   fun:_pthread_exit_mask
+   fun:pthread_exit
+   obj:/lib/libthr.so.3
+}  
+{
+   HELGRIND-PTHREAD-EXIT2
+   Helgrind:Race
+   fun:__sys_thr_exit
+   fun:_pthread_exit_mask
+   fun:pthread_exit
+   obj:/lib/libthr.so.3
+}  
+{
+   HELGRIND-PTHREAD-EXIT3
+   Helgrind:Race
+   obj:/lib/libthr.so.3
+   fun:pthread_join_WRK
+   fun:pthread_join
+}
+{
+   HELGRIND-PTHREAD-EXIT4
+   Helgrind:Race
+   fun:_thr_try_gc
+   obj:/lib/libthr.so.3
+   fun:pthread_join_WRK
+   fun:pthread_join
+}
+{
+   HELGRIND-PTHREAD-EXIT5
+   Helgrind:Race
+   fun:__sys_thr_exit
+   obj:/lib/libthr.so.3
+   fun:_pthread_exit_mask
+   fun:pthread_exit
+   obj:/lib/libthr.so.3
+}
+{
+   HELGRIND-PTHREAD-BARRIER1
+   Helgrind:Race
+   fun:pthread_barrier_init
+   fun:pthread_barrier_init
+   fun:main
+}
+{
+   HELGRIND-PTHREAD-BARRIER2
+   Helgrind:Race
+   fun:pthread_barrier_destroy
+   fun:pthread_barrier_destroy
+   fun:main
+}
+{
+   HELGRIND-PTHREAD-CANCEL
+   Helgrind:Race
+   fun:pthread_cancel
+   fun:main
+}
