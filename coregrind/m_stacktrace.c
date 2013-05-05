@@ -329,7 +329,7 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
       if (filename != NULL && VG_(strstr)(filename, "/libc.so")) {
          match = 1;
       }
-      if (match = 1 && fp_min <= uregs.xsp &&
+      if (match == 1 && fp_min <= uregs.xsp &&
 	  uregs.xsp <= fp_max - 1 * sizeof(UWord)) {
          /* fp looks sane, so use it. */
          uregs.xip = (((UWord*)uregs.xsp)[0]);
