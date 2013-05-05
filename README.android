@@ -77,6 +77,8 @@ export CC=$NDKROOT/toolchains/x86-4.4.3/prebuilt/linux-x86/bin/i686-android-linu
 # different if /sdcard doesn't work on the device -- this is
 # a known cause of difficulties.
 
+# The below re-generates configure, Makefiles, ...
+# This is not needed if you start from a release tarball.
 ./autogen.sh
 
 # for ARM
