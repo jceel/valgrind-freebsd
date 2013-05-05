@@ -2099,6 +2099,9 @@ AC_SUBST(MPI_CC)
 AM_COND_IF([VGCONF_OS_IS_LINUX],
            [CFLAGS_MPI="-g -O -fno-omit-frame-pointer -Wall -fpic"
             LDFLAGS_MPI="-fpic -shared"])
+AM_COND_IF([VGCONF_OS_IS_FREEBSD],
+           [CFLAGS_MPI="-g -O -fno-omit-frame-pointer -Wall -fpic"
+            LDFLAGS_MPI="-fpic -shared"])
 AM_COND_IF([VGCONF_OS_IS_DARWIN],
            [CFLAGS_MPI="-g -O -fno-omit-frame-pointer -Wall -dynamic"
             LDFLAGS_MPI="-dynamic -dynamiclib -all_load"])
