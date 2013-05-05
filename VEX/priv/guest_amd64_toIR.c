@@ -7104,9 +7104,11 @@ ULong dis_MMX ( Bool* decode_ok,
             goto mmx_decode_failure;
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
-            /* Fall through.  The assembler doesn't appear to generate
-               these. */
-            goto mmx_decode_failure;
+            delta++;
+            putMMXReg( eregLO3ofRM(modrm), getMMXReg(gregLO3ofRM(modrm)) );
+            DIP("movq %s, %s\n",
+                nameMMXReg(gregLO3ofRM(modrm)),
+                nameMMXReg(eregLO3ofRM(modrm)));
          } else {
             IRTemp addr = disAMode( &len, vbi, pfx, delta, dis_buf, 0 );
             delta += len;
@@ -11596,6 +11598,11 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
             /* fall through; awaiting test case */
+            putXMMReg( eregOfRexRM(pfx,modrm),
+                       getXMMReg( gregOfRexRM(pfx,modrm) ));
+            DIP("movaps %s,%s\n", nameXMMReg(gregOfRexRM(pfx,modrm)),
+                                  nameXMMReg(eregOfRexRM(pfx,modrm)));
+            delta += 1;
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             gen_SEGV_if_not_16_aligned( addr );
@@ -11603,8 +11610,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
             DIP("movaps %s,%s\n", nameXMMReg(gregOfRexRM(pfx,modrm)),
                                   dis_buf );
             delta += alen;
-            goto decode_success;
          }
+         goto decode_success;
       }
       /* 66 0F 29 = MOVAPD -- move from G (xmm) to E (mem or xmm). */
       if (have66noF2noF3(pfx)
@@ -16021,7 +16028,8 @@ static Long dis_PHMINPOSUW_128 ( VexAbiInfo* vbi, Prefix pfx,
       DIP("%sphminposuw %s,%s\n", mbV, nameXMMReg(rE), nameXMMReg(rG));
    } else {
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
-      gen_SEGV_if_not_16_aligned(addr);
+      if (!isAvx)
+         gen_SEGV_if_not_16_aligned(addr);
       assign( sV, loadLE(Ity_V128, mkexpr(addr)) );
       delta += alen;
       DIP("%sphminposuw %s,%s\n", mbV, dis_buf, nameXMMReg(rG));
@@ -16911,6 +16919,7 @@ static Long dis_PCMPxSTRx ( VexAbiInfo* vbi, Prefix pfx,
       case 0x00:
       case 0x02: case 0x08: case 0x0A: case 0x0C: case 0x12:
       case 0x1A: case 0x38: case 0x3A: case 0x44: case 0x4A:
+      case 0x46:
          break;
       case 0x01: // the 16-bit character versions of the above
       case 0x03: case 0x09: case 0x0B: case 0x0D: case 0x13:
@@ -19737,6 +19746,22 @@ Long dis_ESC_0F (
       DIP("ud2\n");
       return delta;
 
+   case 0x0D: /* 0F 0D /0 -- prefetch mem8 */
+              /* 0F 0D /1 -- prefetchw mem8 */
+      if (have66orF2orF3(pfx)) goto decode_failure;
+      modrm = getUChar(delta);
+      if (epartIsReg(modrm)) goto decode_failure;
+      if (gregLO3ofRM(modrm) != 0 && gregLO3ofRM(modrm) != 1)
+         goto decode_failure;
+      addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
+      delta += alen;
+      switch (gregLO3ofRM(modrm)) {
+         case 0: DIP("prefetch %s\n", dis_buf); break;
+         case 1: DIP("prefetchw %s\n", dis_buf); break;
+         default: vassert(0); /*NOTREACHED*/
+      }
+      return delta;
+
    case 0x1F:
       if (haveF2orF3(pfx)) goto decode_failure;
       modrm = getUChar(delta);
@@ -20061,13 +20086,16 @@ Long dis_ESC_0F (
       return delta;
 
    case 0xBC: /* BSF Gv,Ev */
-      if (haveF2orF3(pfx)) goto decode_failure;
+      if (haveF2(pfx)) goto decode_failure;
       delta = dis_bs_E_G ( vbi, pfx, sz, delta, True );
       return delta;
 
    case 0xBD: /* BSR Gv,Ev */
-      if (!haveF2orF3(pfx)) {
-         /* no-F2 no-F3 0F BD = BSR */
+      if (!haveF2orF3(pfx)
+          || (haveF3noF2(pfx)
+              && 0 == (archinfo->hwcaps & VEX_HWCAPS_AMD64_LZCNT))) {
+         /* no-F2 no-F3 0F BD = BSR
+                  or F3 0F BD = REP; BSR on older CPUs.  */
          delta = dis_bs_E_G ( vbi, pfx, sz, delta, False );
          return delta;
       }
@@ -25872,7 +25900,6 @@ Long dis_ESC_0F3A__VEX (
                                            nameXMMReg(rV), nameXMMReg(rG));
          } else {
             addr = disAMode( &alen, vbi, pfx, delta, dis_buf, 1 );
-            gen_SEGV_if_not_16_aligned( addr );
             assign( sV, loadLE(Ity_V128, mkexpr(addr)) );
             imm8 = getUChar(delta+alen);
             delta += alen+1;
@@ -26265,7 +26292,6 @@ Long dis_ESC_0F3A__VEX (
          } else {
             addr = disAMode( &alen, vbi, pfx, delta, dis_buf, 
                              1/* imm8 is 1 byte after the amode */ );
-            gen_SEGV_if_not_16_aligned( addr );
             assign( src_vec, loadLE( Ity_V128, mkexpr(addr) ) );
             imm8 = (Int)getUChar(delta+alen);
             delta += alen+1;
@@ -26934,23 +26960,6 @@ DisResult disInstr_AMD64_WRK (
       /* =-=-=-=-=-=-=-=-=- Jcond d32 -=-=-=-=-=-=-=-=-= */
 
       /* =-=-=-=-=-=-=-=-=- PREFETCH =-=-=-=-=-=-=-=-=-= */
-      case 0x0D: /* 0F 0D /0 -- prefetch mem8 */
-                 /* 0F 0D /1 -- prefetchw mem8 */
-         if (have66orF2orF3(pfx)) goto decode_failure;
-         modrm = getUChar(delta);
-         if (epartIsReg(modrm)) goto decode_failure;
-         if (gregLO3ofRM(modrm) != 0 && gregLO3ofRM(modrm) != 1)
-            goto decode_failure;
-
-         addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
-         delta += alen;
-
-         switch (gregLO3ofRM(modrm)) {
-            case 0: DIP("prefetch %s\n", dis_buf); break;
-            case 1: DIP("prefetchw %s\n", dis_buf); break;
-            default: vassert(0); /*NOTREACHED*/
-         }
-         break;
 
       /* =-=-=-=-=-=-=-=-=- RDTSC -=-=-=-=-=-=-=-=-=-=-= */
 

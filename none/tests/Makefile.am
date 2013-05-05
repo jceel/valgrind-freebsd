@@ -132,6 +132,7 @@ EXTRA_DIST = \
 		require-text-symbol-1.stderr.exp \
 	require-text-symbol-2.vgtest \
 		require-text-symbol-2.stderr.exp-libcso6 \
+		require-text-symbol-2.stderr.exp-freebsd \
 	res_search.stderr.exp res_search.stdout.exp res_search.vgtest \
 	resolv.stderr.exp resolv.stdout.exp resolv.vgtest \
 	rlimit_nofile.stderr.exp rlimit_nofile.stdout.exp rlimit_nofile.vgtest \
@@ -141,6 +142,8 @@ EXTRA_DIST = \
 	semlimit.stderr.exp semlimit.stdout.exp semlimit.vgtest \
 	shell shell.vgtest shell.stderr.exp shell.stderr.exp-dash \
 	    shell.stdout.exp shell.stderr.exp-dash2 \
+	    shell.stderr.exp-freebsd shell.stdout.exp-freebsd \
+	    shell_dir.stderr.exp-freebsd \
 	shell_badinterp shell_badinterp.vgtest shell_badinterp.stderr.exp \
 	shell_binaryfile shell_binaryfile.vgtest shell_binaryfile.stderr.exp \
 	shell_dir.vgtest shell_dir.stderr.exp \

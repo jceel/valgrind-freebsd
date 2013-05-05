@@ -95,7 +95,7 @@ EXTRA_DIST = \
 	execve1.stderr.exp execve1.vgtest execve1.stderr.exp-kfail \
 	execve2.stderr.exp execve2.vgtest execve2.stderr.exp-kfail \
 	file_locking.stderr.exp file_locking.vgtest \
-	fprw.stderr.exp fprw.vgtest \
+	fprw.stderr.exp fprw.stderr.exp-freebsd fprw.vgtest \
 	fwrite.stderr.exp fwrite.vgtest fwrite.stderr.exp-kfail \
 	holey_buffer_too_small.vgtest holey_buffer_too_small.stdout.exp \
 	holey_buffer_too_small.stderr.exp \
@@ -156,6 +156,7 @@ EXTRA_DIST = \
 	origin5-bz2.stderr.exp-glibc27-ppc64 \
 	origin5-bz2.stderr.exp-glibc212-s390x \
 	origin5-bz2.stderr.exp-glibc234-s390x \
+	origin5-bz2.stderr.exp-freebsd \
 	origin6-fp.vgtest origin6-fp.stdout.exp \
 	origin6-fp.stderr.exp-glibc25-amd64 \
 	origin6-fp.stderr.exp-glibc27-ppc64 \
