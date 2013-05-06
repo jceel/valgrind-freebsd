@@ -227,6 +227,7 @@ noinst_HEADERS = \
 	m_syswrap/priv_syswrap-generic.h \
 	m_syswrap/priv_syswrap-linux.h \
 	m_syswrap/priv_syswrap-linux-variants.h \
+	m_syswrap/priv_syswrap-freebsd.h \
 	m_syswrap/priv_syswrap-darwin.h \
 	m_syswrap/priv_syswrap-main.h \
 	m_ume/priv_ume.h
@@ -286,6 +287,8 @@ COREGRIND_SOURCES_COMMON = \
 	m_aspacemgr/aspacemgr-linux.c \
 	m_coredump/coredump-elf.c \
 	m_coredump/coredump-macho.c \
+	m_coredump/coredump-amd64-freebsd.c \
+	m_coredump/coredump-x86-freebsd.c \
 	m_debuginfo/misc.c \
 	m_debuginfo/d3basics.c \
 	m_debuginfo/debuginfo.c \
