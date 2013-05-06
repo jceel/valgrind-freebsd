@@ -9,7 +9,7 @@ EXTRA_DIST = \
 	annotate_hbefore.vgtest annotate_hbefore.stdout.exp \
 		annotate_hbefore.stderr.exp \
 	annotate_rwlock.vgtest annotate_rwlock.stdout.exp \
-		annotate_rwlock.stderr.exp \
+		annotate_rwlock.stderr.exp annotate_rwlock.stderr.exp-freebsd \
 	annotate_smart_pointer.vgtest annotate_smart_pointer.stdout.exp \
 		annotate_smart_pointer.stderr.exp \
 	cond_timedwait_invalid.vgtest cond_timedwait_invalid.stdout.exp \

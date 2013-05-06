@@ -42,8 +42,10 @@ nobase_pkginclude_HEADERS = \
 	pub_tool_xarray.h		\
 	valgrind.h			\
 	vki/vki-linux.h			\
-	vki/vki-freebsd.h			\
+	vki/vki-freebsd.h		\
 	vki/vki-darwin.h		\
+	vki/vki-machine-types-amd64-freebsd.h	\
+	vki/vki-machine-types-x86-freebsd.h	\
 	vki/vki-posixtypes-amd64-linux.h \
 	vki/vki-posixtypes-ppc32-linux.h \
 	vki/vki-posixtypes-ppc64-linux.h \
