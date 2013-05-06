@@ -287,8 +287,6 @@ COREGRIND_SOURCES_COMMON = \
 	m_aspacemgr/aspacemgr-linux.c \
 	m_coredump/coredump-elf.c \
 	m_coredump/coredump-macho.c \
-	m_coredump/coredump-amd64-freebsd.c \
-	m_coredump/coredump-x86-freebsd.c \
 	m_debuginfo/misc.c \
 	m_debuginfo/d3basics.c \
 	m_debuginfo/debuginfo.c \
