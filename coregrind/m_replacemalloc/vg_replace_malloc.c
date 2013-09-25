@@ -1050,7 +1050,11 @@ static inline void trigger_memcheck_error_if_undefined ( ULong x )
       return VKI_ENOMEM; \
    }
 
-#if defined(VGO_linux) || defined(VGO_linux)
+#if defined(VGO_linux)
+ POSIX_MEMALIGN(VG_Z_LIBC_SONAME, posix_memalign);
+ POSIX_MEMALIGN(SO_SYN_MALLOC,    posix_memalign);
+
+#elif defined(VGO_freebsd)
  POSIX_MEMALIGN(VG_Z_LIBC_SONAME, posix_memalign);
  POSIX_MEMALIGN(SO_SYN_MALLOC,    posix_memalign);
 
