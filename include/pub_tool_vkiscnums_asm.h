@@ -7,9 +7,9 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2005-2012 Nicholas Nethercote
+   Copyright (C) 2005-2013 Nicholas Nethercote
       njn@valgrind.org
-   Copyright (C) 2006-2012 OpenWorks LLP
+   Copyright (C) 2006-2013 OpenWorks LLP
       info@open-works.co.uk
 
    This program is free software; you can redistribute it and/or
@@ -53,6 +53,9 @@
 
 #elif defined(VGP_mips32_linux)
 #  include "vki/vki-scnums-mips32-linux.h"
+
+#elif defined(VGP_mips64_linux)
+#  include "vki/vki-scnums-mips64-linux.h"
 
 #elif defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd)
 #  include "vki/vki-scnums-freebsd.h"
