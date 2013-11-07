@@ -28,7 +28,7 @@ int main(int argc, char** argv)
 #ifdef VGO_freebsd
   pthread_detach((pthread_t)12345);
 #else
-  pthread_detach(thread + 1);
+  pthread_detach(thread + 0);
 #endif
 
   fprintf(stderr, "Finished.\n");

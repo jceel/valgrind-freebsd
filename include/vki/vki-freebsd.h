@@ -680,6 +680,15 @@ static __inline struct vki_cmsghdr * vki_cmsg_nxthdr (struct vki_msghdr *__msg, 
 #define VKI_SO_TYPE	0x1008
 
 #define VKI_SOCK_STREAM	1
+
+#include <netinet/tcp.h>
+
+#define VKI_TCP_NODELAY  TCP_NODELAY
+
+#include <netinet/in.h>
+
+#define VKI_IPPROTO_TCP  IPPROTO_TCP
+
 //----------------------------------------------------------------------
 // From netinet/in.h
 //----------------------------------------------------------------------

@@ -11,7 +11,7 @@
       derived from readelf.c and valgrind-20031012-wine/vg_symtab2.c
       derived from wine-1.0/tools/winedump/pdb.c and msc.c
 
-   Copyright (C) 2000-2012 Julian Seward
+   Copyright (C) 2000-2013 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -32,10 +32,13 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux) || defined(VGO_darwin)
+#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_darwin)
 
 #ifndef __PRIV_READPDB_H
 #define __PRIV_READPDB_H
+
+#include "pub_core_basics.h"     // Addr
+#include "pub_core_debuginfo.h"  // DebugInfo
 
 /* Returns True if OK, False for any kind of failure. */
 extern Bool ML_(read_pdb_debug_info)(
@@ -44,7 +47,7 @@ extern Bool ML_(read_pdb_debug_info)(
                PtrdiffT   obj_bias,
                void*      pdbimage,
                SizeT      n_pdbimage,
-               Char*      pdbname,
+               HChar*     pdbname,
                ULong      pdbmtime
             );
 
@@ -56,7 +59,7 @@ HChar* ML_(find_name_of_pdb_file)( HChar* pename );
 
 #endif /* ndef __PRIV_READPDB_H */
 
-#endif // defined(VGO_linux) || defined(VGO_darwin)
+#endif // defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_darwin)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/
