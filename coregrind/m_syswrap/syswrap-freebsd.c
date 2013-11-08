@@ -2793,7 +2793,7 @@ POST(sys_shm_open)
       SET_STATUS_Failure( VKI_EMFILE );
    } else {
       if (VG_(clo_track_fds))
-         ML_(record_fd_open_with_given_name)(tid, RES, (Char*)ARG1);
+         ML_(record_fd_open_with_given_name)(tid, RES, (HChar*)ARG1);
    }
 }
 
@@ -2953,8 +2953,8 @@ PRE(sys_openat)
 
    VG_(sprintf)(name, "/proc/%d/cmdline", VG_(getpid)());
    if (ML_(safe_to_deref)( (void*)ARG2, 1 )
-       && (VG_(strcmp)((Char *)ARG2, name) == 0 
-           || VG_(strcmp)((Char *)ARG2, "/proc/curproc/cmdline") == 0)) {
+       && (VG_(strcmp)((HChar *)ARG2, name) == 0 
+           || VG_(strcmp)((HChar *)ARG2, "/proc/curproc/cmdline") == 0)) {
       sres = VG_(dup)( VG_(cl_cmdline_fd) );
       SET_STATUS_from_SysRes( sres );
       if (!sr_isError(sres)) {
@@ -2977,7 +2977,7 @@ POST(sys_openat)
       SET_STATUS_Failure( VKI_EMFILE );
    } else {
       if (VG_(clo_track_fds))
-         ML_(record_fd_open_with_given_name)(tid, RES, (Char*)ARG2);
+         ML_(record_fd_open_with_given_name)(tid, RES, (HChar*)ARG2);
    }
 }
 
@@ -3097,8 +3097,8 @@ PRE(sys_readlinkat)
     */
    VG_(sprintf)(name, "/proc/%d/file", VG_(getpid)());
    if (ML_(safe_to_deref)((void*)ARG2, 1)
-       && (VG_(strcmp)((Char *)ARG2, name) == 0 
-           || VG_(strcmp)((Char *)ARG2, "/proc/curproc/file") == 0)) {
+       && (VG_(strcmp)((HChar *)ARG2, name) == 0 
+           || VG_(strcmp)((HChar *)ARG2, "/proc/curproc/file") == 0)) {
       VG_(sprintf)(name, "/proc/self/fd/%d", VG_(cl_exec_fd));
       SET_STATUS_from_SysRes( VG_(do_syscall4)(saved, ARG1, (UWord)name, 
                                                       ARG3, ARG4));
