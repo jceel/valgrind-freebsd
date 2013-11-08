@@ -237,6 +237,7 @@ DECL_TEMPLATE(freebsd, sys__umtx_op);
 DECL_TEMPLATE(freebsd, sys__umtx_lock);
 DECL_TEMPLATE(freebsd, sys__umtx_unlock);
 DECL_TEMPLATE(freebsd, sys_thr_kill2);
+DECL_TEMPLATE(freebsd, sys_thr_wake);
 DECL_TEMPLATE(freebsd, sys_shm_open);
 DECL_TEMPLATE(freebsd, sys_shm_unlink);
 DECL_TEMPLATE(freebsd, sys_eaccess);
