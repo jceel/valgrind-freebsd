@@ -1960,6 +1960,18 @@ struct vki_urwlock {
 	vki_uint32_t	rw_spare[4];
 };
 
+struct vki_usem {
+	vki_uint32_t	has_waiters;
+	vki_uint32_t	count;
+	vki_uint32_t	flags;
+};
+
+struct vki_umtx_time {
+	struct vki_timespec	timeout;
+	vki_uint32_t		flags;
+	vki_uint32_t		clockid;
+};
+
 #define	VKI_UMTX_OP_LOCK		0
 #define	VKI_UMTX_OP_UNLOCK		1
 #define	VKI_UMTX_OP_WAIT		2
@@ -1978,8 +1990,12 @@ struct vki_urwlock {
 #define	VKI_UMTX_OP_WAIT_UINT_PRIVATE	15
 #define	VKI_UMTX_OP_WAKE_PRIVATE	16
 #define	VKI_UMTX_OP_MUTEX_WAIT		17
-#define	VKI_UMTX_OP_MUTEX_WAKE		18
-#define	VKI_UMTX_OP_MAX			19
+#define	VKI_UMTX_OP_MUTEX_WAKE		18 /* deprecated */
+#define	VKI_UMTX_OP_SEM_WAIT		19
+#define	VKI_UMTX_OP_SEM_WAKE		20
+#define	VKI_UMTX_OP_NWAKE_PRIVATE	21
+#define	VKI_UMTX_OP_MUTEX_WAKE2		22
+#define	VKI_UMTX_OP_MAX			23
 
 
 //----------------------------------------------------------------------
