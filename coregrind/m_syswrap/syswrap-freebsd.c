@@ -1948,6 +1948,12 @@ POST(sys_thr_kill2)
                    ARG3, ARG1, ARG2);
 }
 
+PRE(sys_thr_wake)
+{
+   PRINT("sys_thr_wake ( %ld )", ARG1);
+   PRE_REG_READ1(long, "thr_wake", long, id);
+}
+
 /* ---------------------------------------------------------------------
    umtx* wrappers
    ------------------------------------------------------------------ */
@@ -4174,8 +4180,7 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // kse_switchin							   440
    // ksem_timedwait							   441
    // thr_suspend							   442
-   // thr_wake								   443
-
+   BSDX_(__NR_thr_wake,			sys_thr_wake),			// 443
    // kldunloadf							   444
    // audit								   445
    // auditon								   446
