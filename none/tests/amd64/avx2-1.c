@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 typedef  unsigned char           UChar;
 typedef  unsigned int            UInt;
@@ -64,7 +64,8 @@ void randBlock ( Block* b )
     \
     __attribute__ ((noinline)) static void test_##_name ( void )   \
     { \
-       Block* b = memalign(32, sizeof(Block)); \
+       Block* b; \
+       posix_memalign(&b, 32, sizeof(Block)); \
        randBlock(b); \
        printf("%s(reg)\n", #_name); \
        showBlock("before", b); \
