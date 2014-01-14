@@ -2083,11 +2083,7 @@ struct vki_kinfo_file {
         int     kf_sock_protocol;               /* Socket protocol. */
         char    kf_sa_local[128];               /* Socket address. */
         char    kf_sa_peer[128];                /* Peer address. */
-#if __FreeBSD_version < 1000053
         int     _kf_ispare[16];                 /* Space for more stuff. */
-#else
-        int     _kf_ispare[24];                 /* Space for more stuff. */
-#endif
         /* Truncated before copyout in sysctl */
         char    kf_path[VKI_PATH_MAX];          /* Path to file, if any. */
 };
