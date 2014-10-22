@@ -95,6 +95,9 @@ extern Bool VG_(is32on64)(void);
 // icache invalidation
 extern void VG_(invalidate_icache) ( void *ptr, SizeT nbytes );
 
+// dcache flushing
+extern void VG_(flush_dcache) ( void *ptr, SizeT nbytes );
+
 #endif   // __PUB_CORE_LIBCPROC_H
 
 /*--------------------------------------------------------------------*/
