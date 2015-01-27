@@ -267,10 +267,10 @@ static SysRes do_rfork ( ThreadId ptid,
       only go down to the start of the mmaped segment. */
    seg = VG_(am_find_nsegment)((Addr)esp);
    if (seg && seg->kind != SkResvn) {
-      ctst->client_stack_highest_word = (Addr)VG_PGROUNDUP(esp);
-      ctst->client_stack_szB = ctst->client_stack_highest_word - seg->start;
+      ctst->client_stack_highest_byte = (Addr)VG_PGROUNDUP(esp);
+      ctst->client_stack_szB = ctst->client_stack_highest_byte - seg->start;
 
-      VG_(register_stack)(seg->start, ctst->client_stack_highest_word);
+      VG_(register_stack)(seg->start, ctst->client_stack_highest_byte);
 
       if (debug)
 	 VG_(printf)("tid %d: guessed client stack range %#lx-%#lx\n",

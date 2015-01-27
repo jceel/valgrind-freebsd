@@ -470,7 +470,7 @@ Addr setup_client_stack( void*  init_sp,
    clstack_max_size = VG_PGROUNDUP(clstack_max_size);
 
    /* Record stack extent -- needed for stack-change code. */
-   VG_(clstk_base) = clstack_start;
+   VG_(clstk_start_base) = clstack_start;
    VG_(clstk_end)  = clstack_end;
 
    if (0)
@@ -626,7 +626,7 @@ Addr setup_client_stack( void*  init_sp,
             break;
 
          case AT_BASE:
-            auxv->u.a_val = info->interp_base;
+            auxv->u.a_val = info->interp_offset;
             break;
 
          case AT_ENTRY:
@@ -787,7 +787,7 @@ IIFinaliseImageInfo VG_(ii_create_image)( IICreateImageInfo iicii )
       iifii.initial_client_SP
          = setup_client_stack( init_sp, env, 
                                &info, &iifii.client_auxv, 
-                               iicii.clstack_top, iifii.clstack_max_size );
+                               iicii.clstack_end, iifii.clstack_max_size );
 
       VG_(free)(env);
 

@@ -56,15 +56,12 @@ const HChar* VG_(sysnum_string)(Word sysnum)
 #elif defined(VGO_freebsd)
 //---------------------------------------------------------------------------
 
-HChar* VG_(sysnum_string)(Word sysnum, SizeT n_buf, HChar* buf)
+const HChar* VG_(sysnum_string)(Word sysnum)
 {
-   VG_(snprintf)(buf, n_buf, "%3ld", sysnum);
-   return buf;
-}
+   static HChar buf[20+1];   // large enough
 
-HChar* VG_(sysnum_string_extra)(Word sysnum, SizeT n_buf, HChar* buf)
-{
-   return VG_(sysnum_string)(sysnum, n_buf, buf);
+   VG_(snprintf)(buf, sizeof(buf), "%3ld", sysnum);
+   return buf;
 }
 
 #elif defined(VGO_darwin)

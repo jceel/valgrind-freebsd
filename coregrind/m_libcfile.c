@@ -585,7 +585,7 @@ Int VG_(readlink) (const HChar* path, HChar* buf, UInt bufsiz)
    return sr_isError(res) ? -1 : sr_Res(res);
 }
 
-#if defined(VGO_linux) || defined(VGO_freebsd)
+#if defined(VGO_linux)
 Int VG_(getdents64) (Int fd, struct vki_dirent64 *dirp, UInt count)
 {
    SysRes res;
