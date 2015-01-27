@@ -1657,10 +1657,8 @@ Addr VG_(am_startup) ( Addr sp_at_startup )
 #elif defined(VGO_freebsd)
 
 # if VG_WORDSIZE == 4
-   aspacem_minAddr = (Addr) 0x00010000; // 64K
    aspacem_maxAddr = VG_PGROUNDDN( sp_at_startup ) - 1;
 # else
-   aspacem_minAddr = (Addr) 0x00010000; // 64k
    aspacem_maxAddr = (Addr) (Addr)0x800000000 - 1; // 32G
 #  ifdef ENABLE_INNER
    { Addr cse = VG_PGROUNDDN( sp_at_startup ) - 1;
@@ -1677,7 +1675,7 @@ Addr VG_(am_startup) ( Addr sp_at_startup )
    aspacem_vStart -= 0x10000000; // 256M
 #  endif
 
-   suggested_clstack_top = aspacem_maxAddr - 16*1024*1024ULL
+   suggested_clstack_end = aspacem_maxAddr - 16*1024*1024ULL
                                            + VKI_PAGE_SIZE;
 
 #else

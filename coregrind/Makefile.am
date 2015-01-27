@@ -79,6 +79,9 @@ if VGCONF_OS_IS_DARWIN
 # having access to Darwin, 'none' implementation is used.
 vgdb_SOURCES += vgdb-invoker-none.c
 endif
+if VGCONF_OS_IS_FREEBSD
+vgdb_SOURCES += vgdb-invoker-none.c
+endif
 
 vgdb_CPPFLAGS  = $(AM_CPPFLAGS_PRI)
 vgdb_CFLAGS    = $(AM_CFLAGS_PRI)
