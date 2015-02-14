@@ -72,6 +72,7 @@
 #  error Unknown platform
 #endif
 
+#include <sys/fcntl.h>
 #include <sys/param.h>
 
 
@@ -1527,17 +1528,17 @@ struct vki_dirent {
 // From sys/fcntl.h
 //----------------------------------------------------------------------
 
-#define VKI_O_RDONLY	  0x0000
-#define VKI_O_WRONLY	  0x0001
-#define VKI_O_RDWR	  0x0002
+#define VKI_O_RDONLY	  O_RDONLY
+#define VKI_O_WRONLY	  O_WRONLY
+#define VKI_O_RDWR	  O_RDWR
 
-#define VKI_O_NONBLOCK	  0x0004
-#define VKI_O_APPEND	  0x0008
-#define VKI_O_CREAT	  0x0200	/* not fcntl */
-#define VKI_O_TRUNC	  0x0400	/* not fcntl */
-#define VKI_O_EXCL	  0x0800	/* not fcntl */
+#define VKI_O_NONBLOCK	  O_NONBLOCK
+#define VKI_O_APPEND	  O_APPEND
+#define VKI_O_CREAT	  O_CREAT
+#define VKI_O_TRUNC	  O_TRUNC
+#define VKI_O_EXCL	  O_EXCL
 
-#define VKI_AT_FDCWD            -100
+#define VKI_AT_FDCWD            AT_FDCWD
 
 #define VKI_F_DUPFD		0	/* dup */
 #define VKI_F_GETFD		1	/* get close_on_exec */

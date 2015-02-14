@@ -722,11 +722,9 @@ PRE(sys_exit_group)
 PRE(sys_exit)
 {
    ThreadId     t;
-   ThreadState* tst;
 
    PRINT("exit( %ld )", ARG1);
    PRE_REG_READ1(void, "exit", int, status);
-   tst = VG_(get_ThreadState)(tid);
 
    /* Mark all threads (including this one) to exit. */
    for (t = 1; t < VG_N_THREADS; t++) {
@@ -2932,44 +2930,23 @@ PRE(sys_eaccess)
 
 PRE(sys_openat)
 {
-   HChar  name[30];
-   SysRes sres;
 
    if (ARG3 & VKI_O_CREAT) {
       // 4-arg version
       PRINT("sys_openat ( %ld, %#lx(%s), %ld, %ld )",ARG1,ARG2,(char*)ARG2,ARG3,ARG4);
-      PRE_REG_READ4(long, "openat",
-                    int, dfd, const char *, filename, int, flags, int, mode);
+      PRE_REG_READ4(int, "openat",
+                    int, dfd, const char *, filename, int, flags, vki_mode_t, mode);
    } else {
       // 3-arg version
       PRINT("sys_openat ( %ld, %#lx(%s), %ld )",ARG1,ARG2,(char*)ARG2,ARG3);
-      PRE_REG_READ3(long, "openat",
+      PRE_REG_READ3(int, "openat",
                     int, dfd, const char *, filename, int, flags);
    }
 
-   if (ARG1 != VKI_AT_FDCWD && !ML_(fd_allowed)(ARG1, "openat", tid, False))
+   if (ARG1 != (unsigned)VKI_AT_FDCWD && !ML_(fd_allowed)(ARG1, "openat", tid, False))
       SET_STATUS_Failure( VKI_EBADF );
    else
       PRE_MEM_RASCIIZ( "openat(filename)", ARG2 );
-
-   /* Handle the case where the open is of /proc/curproc/cmdline or
-      /proc/<pid>/cmdline, and just give it a copy of the fd for the
-      fake file we cooked up at startup (in m_main).  Also, seek the
-      cloned fd back to the start. */
-
-   VG_(sprintf)(name, "/proc/%d/cmdline", VG_(getpid)());
-   if (ML_(safe_to_deref)( (void*)ARG2, 1 )
-       && (VG_(strcmp)((HChar *)ARG2, name) == 0 
-           || VG_(strcmp)((HChar *)ARG2, "/proc/curproc/cmdline") == 0)) {
-      sres = VG_(dup)( VG_(cl_cmdline_fd) );
-      SET_STATUS_from_SysRes( sres );
-      if (!sr_isError(sres)) {
-         OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
-         if (off < 0)
-            SET_STATUS_Failure( VKI_EMFILE );
-      }
-      return;
-   }
 
    /* Otherwise handle normally */
    *flags |= SfMayBlock;
