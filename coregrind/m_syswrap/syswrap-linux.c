@@ -3005,6 +3005,19 @@ POST(sys_move_pages)
    POST_MEM_WRITE(ARG5, ARG2 * sizeof(int));
 }
 
+PRE(sys_getrandom)
+{
+   PRINT("sys_getrandom ( %#lx, %ld, %ld )" , ARG1,ARG2,ARG3);
+   PRE_REG_READ3(int, "getrandom",
+                 char *, buf, vki_size_t, count, unsigned int, flags);
+   PRE_MEM_WRITE( "getrandom(cpu)", ARG1, ARG2 );
+}
+
+POST(sys_getrandom)
+{
+   POST_MEM_WRITE( ARG1, ARG2 );
+}
+
 /* ---------------------------------------------------------------------
    utime wrapper
    ------------------------------------------------------------------ */
@@ -4372,10 +4385,11 @@ PRE(sys_openat)
    PRE_MEM_RASCIIZ( "openat(filename)", ARG2 );
 
    /* For absolute filenames, dfd is ignored.  If dfd is AT_FDCWD,
-      filename is relative to cwd.  */
+      filename is relative to cwd.  When comparing dfd against AT_FDCWD,
+      be sure only to compare the bottom 32 bits. */
    if (ML_(safe_to_deref)( (void*)ARG2, 1 )
        && *(Char *)ARG2 != '/'
-       && ARG1 != VKI_AT_FDCWD
+       && ((Int)ARG1) != ((Int)VKI_AT_FDCWD)
        && !ML_(fd_allowed)(ARG1, "openat", tid, False))
       SET_STATUS_Failure( VKI_EBADF );
 
@@ -5481,6 +5495,7 @@ PRE(sys_ioctl)
    case VKI_TCXONC:
    case VKI_TCSBRKP:
    case VKI_TCFLSH:
+   case VKI_TIOCSIG:
       /* These just take an int by value */
       break;
    case VKI_TIOCGWINSZ:
@@ -8269,6 +8284,7 @@ POST(sys_ioctl)
    case VKI_TCXONC:
    case VKI_TCSBRKP:
    case VKI_TCFLSH:
+   case VKI_TIOCSIG:
       break;
    case VKI_TIOCGWINSZ:
       POST_MEM_WRITE( ARG3, sizeof(struct vki_winsize) );

@@ -5350,9 +5350,7 @@ static Bool dis_int_store ( UInt theInstr, VexAbiInfo* vbi )
             /* lower half of upper 64-bits */
             assign( EA_lo, ea_rAor0_simm( rA_addr, simm16+12 ) );
          }
-         putIReg( rA_addr, mkexpr(EA_hi) );
          store( mkexpr(EA_hi), mkexpr(rS) );
-         putIReg( rA_addr, mkexpr( EA_lo) );
          store( mkexpr(EA_lo), getIReg( rS_addr+1 ) );
          break;
       }
@@ -15321,26 +15319,27 @@ dis_vx_load ( UInt theInstr )
    }
    case 0x30C:
    {
-      IRExpr * t3, *t2, *t1, *t0;
-      UInt ea_off = 0;
-      IRExpr* irx_addr;
+      IRExpr *t0;
 
       DIP("lxvw4x %d,r%u,r%u\n", (UInt)XT, rA_addr, rB_addr);
-      t3 = load( Ity_I32,  mkexpr( EA ) );
-      ea_off += 4;
-      irx_addr = binop( mkSzOp( ty, Iop_Add8 ), mkexpr( EA ),
-                        ty == Ity_I64 ? mkU64( ea_off ) : mkU32( ea_off ) );
-      t2 = load( Ity_I32, irx_addr );
-      ea_off += 4;
-      irx_addr = binop( mkSzOp( ty, Iop_Add8 ), mkexpr( EA ),
-                        ty == Ity_I64 ? mkU64( ea_off ) : mkU32( ea_off ) );
-      t1 = load( Ity_I32, irx_addr );
-      ea_off += 4;
-      irx_addr = binop( mkSzOp( ty, Iop_Add8 ), mkexpr( EA ),
-                        ty == Ity_I64 ? mkU64( ea_off ) : mkU32( ea_off ) );
-      t0 = load( Ity_I32, irx_addr );
-      putVSReg( XT, binop( Iop_64HLtoV128, binop( Iop_32HLto64, t3, t2 ),
-                           binop( Iop_32HLto64, t1, t0 ) ) );
+
+      /* The load will result in the data being in BE order. */
+      if (host_endness == VexEndnessLE) {
+         IRExpr *t0_BE;
+         IRTemp perm_LE = newTemp(Ity_V128);
+
+         t0_BE = load( Ity_V128, mkexpr( EA ) );
+
+         /*  Permute the data to LE format */
+         assign( perm_LE, binop( Iop_64HLtoV128, mkU64(0x0c0d0e0f08090a0b),
+                                 mkU64(0x0405060700010203)));
+
+         t0 = binop( Iop_Perm8x16, t0_BE, mkexpr(perm_LE) );
+      } else {
+         t0 = load( Ity_V128, mkexpr( EA ) );
+      }
+
+      putVSReg( XT, t0 );
       break;
    }
    default:
@@ -18783,10 +18782,26 @@ DisResult disInstr_PPC_WRK (
       UInt word2 = mode64 ? 0x78006800 : 0x5400683E;
       UInt word3 = mode64 ? 0x7800E802 : 0x5400E83E;
       UInt word4 = mode64 ? 0x78009802 : 0x5400983E;
+      Bool is_special_preamble = False;
       if (getUIntPPCendianly(code+ 0) == word1 &&
           getUIntPPCendianly(code+ 4) == word2 &&
           getUIntPPCendianly(code+ 8) == word3 &&
           getUIntPPCendianly(code+12) == word4) {
+         is_special_preamble = True;
+      } else if (! mode64 &&
+                 getUIntPPCendianly(code+ 0) == 0x54001800 &&
+                 getUIntPPCendianly(code+ 4) == 0x54006800 &&
+                 getUIntPPCendianly(code+ 8) == 0x5400E800 &&
+                 getUIntPPCendianly(code+12) == 0x54009800) {
+         static Bool reported = False;
+         if (!reported) {
+            vex_printf("disInstr(ppc): old ppc32 instruction magic detected. Code might clobber r0.\n");
+            vex_printf("disInstr(ppc): source needs to be recompiled against latest valgrind.h.\n");
+            reported = True;
+         }
+         is_special_preamble = True;
+      }
+      if (is_special_preamble) {
          /* Got a "Special" instruction preamble.  Which one is it? */
          if (getUIntPPCendianly(code+16) == 0x7C210B78 /* or 1,1,1 */) {
             /* %R3 = client_request ( %R4 ) */
