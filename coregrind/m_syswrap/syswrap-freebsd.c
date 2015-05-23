@@ -3597,7 +3597,13 @@ POST(sys_ptrace)
 
 PRE(sys_cpuset_setaffinity)
 {
-	PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+
+    PRINT("sys_cpuset_setaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+        ARG3, ARG4, ARG5);
+    PRE_REG_READ5(int, "cpuset_setaffinity",
+        int, level, int, which, long, id,
+        size_t, setsize, void *, mask);
+    PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
 }
 
 #undef PRE
