@@ -1784,6 +1784,35 @@ POST(sys_pipe)
    }
 }
 
+PRE(sys_pipe2)
+{
+   PRINT("sys_pipe2 ( %#lx, %ld )", ARG1, ARG2);
+   PRE_REG_READ2(long, "pipe2",
+                 int *, fildes, int, flags);
+   PRE_MEM_WRITE("pipe2(fildes)", ARG1, 2 * sizeof(int));
+
+}
+POST(sys_pipe2)
+{
+   int *fildes;
+
+   if (RES != 0)
+      return;
+
+   POST_MEM_WRITE(ARG1, 2 * sizeof(int));
+   fildes = (int *)ARG1;
+
+   if (!ML_(fd_allowed)(fildes[0], "pipe2", tid, True) ||
+       !ML_(fd_allowed)(fildes[1], "pipe2", tid, True)) {
+      VG_(close)(fildes[0]);
+      VG_(close)(fildes[1]);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else if (VG_(clo_track_fds)) {
+      ML_(record_fd_open_nameless)(tid, fildes[0]);
+      ML_(record_fd_open_nameless)(tid, fildes[1]);
+   }
+}
+
 #if 0
 PRE(sys_quotactl)
 {
@@ -4237,6 +4266,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    BSDXY(__NR___semctl,			sys___semctl),			// 510
    BSDXY(__NR_shmctl,			sys_shmctl),			// 512
+
+   BSDXY(__NR_pipe2,			sys_pipe2),			// 542
 
    BSDX_(__NR_fake_sigreturn,		sys_fake_sigreturn),		// 1000, fake sigreturn
 
