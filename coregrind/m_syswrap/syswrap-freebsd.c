@@ -955,24 +955,30 @@ PRE(sys_sendfile)
    *flags |= SfMayBlock;
 #if defined(VGP_x86_freebsd)
    PRINT("sys_sendfile ( %ld, %ld, %llu, %ld, %#lx, %#lx, %lu )", ARG1,ARG2,LOHI64(ARG3,ARG4),ARG5,ARG6,ARG7,ARG8);
+   PRE_REG_READ8(int, "sendfile",
+                 int, fd, int, s, unsigned int, offset_low,
+                 unsigned int, offset_high, size_t, nbytes,
+                 void *, hdtr, vki_off_t *, sbytes, int, flags);
+# define SF_ARG_SBYTES ARG7
 #elif defined(VGP_amd64_freebsd)
    PRINT("sys_sendfile ( %ld, %ld, %lu, %ld, %#lx, %#lx, %lu )", ARG1,ARG2,ARG3,ARG4,ARG5,ARG6,ARG7);
+   PRE_REG_READ7(int, "sendfile",
+                 int, fd, int, s, vki_off_t, offset, size_t, nbytes,
+                 void *, hdtr, vki_off_t *, sbytes, int, flags);
+# define SF_ARG_SBYTES ARG6
 #else
 #  error Unknown platform
 #endif
-   PRE_REG_READ7(ssize_t, "sendfile",
-                 int, fd, int, s, unsigned int, offset_low,
-		 unsigned int, offset_high,
-                 void *, hdtr, vki_off_t *, sbytes, int, flags);
-   if (ARG3 != 0)
-      PRE_MEM_WRITE( "sendfile(offset)", ARG3, sizeof(vki_off_t) );
+   if (SF_ARG_SBYTES != 0)
+      PRE_MEM_WRITE( "sendfile(offset)", SF_ARG_SBYTES, sizeof(vki_off_t) );
 }
 POST(sys_sendfile)
 {
-   if (ARG3 != 0 ) {
-      POST_MEM_WRITE( ARG3, sizeof( vki_off_t ) );
+   if (SF_ARG_SBYTES != 0 ) {
+      POST_MEM_WRITE( SF_ARG_SBYTES, sizeof( vki_off_t ) );
    }
 }
+#undef SF_ARG_SBYTES
 
 /* int getdirentries(int fd, char *buf, u_int count, long *basep); */
 PRE(sys_getdirentries)
