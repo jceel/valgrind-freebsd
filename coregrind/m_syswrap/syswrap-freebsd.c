@@ -3626,7 +3626,31 @@ POST(sys_ptrace)
 
 PRE(sys_cpuset_setaffinity)
 {
-	PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+
+    PRINT("sys_cpuset_setaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+        ARG3, ARG4, ARG5);
+    PRE_REG_READ5(int, "cpuset_setaffinity",
+        int, level, int, which, long, id,
+        size_t, setsize, void *, mask);
+    PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+}
+
+PRE(sys_cpuset_getaffinity)
+{
+
+    PRINT("sys_cpuset_getaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+        ARG3, ARG4, ARG5);
+    PRE_REG_READ5(int, "cpuset_getaffinity",
+        int, level, int, which, long, id,
+        size_t, setsize, void *, mask);
+    PRE_MEM_WRITE("cpuset_getaffinity", ARG5, ARG4);
+}
+
+POST(sys_cpuset_getaffinity)
+{
+    vg_assert(SUCCESS);
+    if (RES == 0)
+        POST_MEM_WRITE( ARG5, ARG4 );
 }
 
 #undef PRE
@@ -4240,8 +4264,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // cpuset								   484
    // cpuset_setid							   485
    // cpuset_getid							   486
-   // cpuset_getaffinity						   487
 
+   BSDXY(__NR_cpuset_getaffinity,	sys_cpuset_getaffinity),	// 487
    BSDX_(__NR_cpuset_setaffinity,	sys_cpuset_setaffinity),	// 488
    BSDX_(__NR_faccessat,		sys_faccessat),			// 489
    BSDX_(__NR_fchmodat,			sys_fchmodat),			// 490
