@@ -1790,6 +1790,35 @@ POST(sys_pipe)
    }
 }
 
+PRE(sys_pipe2)
+{
+   PRINT("sys_pipe2 ( %#lx, %ld )", ARG1, ARG2);
+   PRE_REG_READ2(long, "pipe2",
+                 int *, fildes, int, flags);
+   PRE_MEM_WRITE("pipe2(fildes)", ARG1, 2 * sizeof(int));
+
+}
+POST(sys_pipe2)
+{
+   int *fildes;
+
+   if (RES != 0)
+      return;
+
+   POST_MEM_WRITE(ARG1, 2 * sizeof(int));
+   fildes = (int *)ARG1;
+
+   if (!ML_(fd_allowed)(fildes[0], "pipe2", tid, True) ||
+       !ML_(fd_allowed)(fildes[1], "pipe2", tid, True)) {
+      VG_(close)(fildes[0]);
+      VG_(close)(fildes[1]);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else if (VG_(clo_track_fds)) {
+      ML_(record_fd_open_nameless)(tid, fildes[0]);
+      ML_(record_fd_open_nameless)(tid, fildes[1]);
+   }
+}
+
 #if 0
 PRE(sys_quotactl)
 {
@@ -3603,7 +3632,31 @@ POST(sys_ptrace)
 
 PRE(sys_cpuset_setaffinity)
 {
-	PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+
+    PRINT("sys_cpuset_setaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+        ARG3, ARG4, ARG5);
+    PRE_REG_READ5(int, "cpuset_setaffinity",
+        int, level, int, which, long, id,
+        size_t, setsize, void *, mask);
+    PRE_MEM_READ("cpuset_setaffinity", ARG5, ARG4);
+}
+
+PRE(sys_cpuset_getaffinity)
+{
+
+    PRINT("sys_cpuset_getaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+        ARG3, ARG4, ARG5);
+    PRE_REG_READ5(int, "cpuset_getaffinity",
+        int, level, int, which, long, id,
+        size_t, setsize, void *, mask);
+    PRE_MEM_WRITE("cpuset_getaffinity", ARG5, ARG4);
+}
+
+POST(sys_cpuset_getaffinity)
+{
+    vg_assert(SUCCESS);
+    if (RES == 0)
+        POST_MEM_WRITE( ARG5, ARG4 );
 }
 
 #undef PRE
@@ -4217,8 +4270,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    // cpuset								   484
    // cpuset_setid							   485
    // cpuset_getid							   486
-   // cpuset_getaffinity						   487
 
+   BSDXY(__NR_cpuset_getaffinity,	sys_cpuset_getaffinity),	// 487
    BSDX_(__NR_cpuset_setaffinity,	sys_cpuset_setaffinity),	// 488
    BSDX_(__NR_faccessat,		sys_faccessat),			// 489
    BSDX_(__NR_fchmodat,			sys_fchmodat),			// 490
@@ -4243,6 +4296,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    BSDXY(__NR___semctl,			sys___semctl),			// 510
    BSDXY(__NR_shmctl,			sys_shmctl),			// 512
+
+   BSDXY(__NR_pipe2,			sys_pipe2),			// 542
 
    BSDX_(__NR_fake_sigreturn,		sys_fake_sigreturn),		// 1000, fake sigreturn
 
