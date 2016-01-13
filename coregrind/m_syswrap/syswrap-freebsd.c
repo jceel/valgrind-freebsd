@@ -430,17 +430,28 @@ PRE(sys_setsockopt)
 
 PRE(sys_getsockopt)
 {
+   Addr optval_p = ARG4;
+   Addr optlen_p = ARG5;
    PRINT("sys_getsockopt ( %ld, %ld, %ld, %#lx, %#lx )",ARG1,ARG2,ARG3,ARG4,ARG5);
    PRE_REG_READ5(long, "getsockopt",
                  int, s, int, level, int, optname,
                  void *, optval, int, *optlen);
-// XXX: ML_(generic_PRE_sys_getsockopt)(tid, ARG1,ARG2,ARG3,ARG4,ARG5);
+   if (optval_p != (Addr)NULL) {
+      ML_(buf_and_len_pre_check) ( tid, optval_p, optlen_p,
+                                   "getsockopt(optval)",
+                                   "getsockopt(optlen)" );
+   }
 }
 POST(sys_getsockopt)
 {
+   Addr optval_p = ARG4;
+   Addr optlen_p = ARG5;
    vg_assert(SUCCESS);
-//   ML_(generic_POST_sys_getsockopt)(tid, VG_(mk_SysRes_Success)(RES),
-//XXX:                                         ARG1,ARG2,ARG3,ARG4,ARG5);
+   if (optval_p != (Addr)NULL) {
+      ML_(buf_and_len_post_check) ( tid, VG_(mk_SysRes_Success)(RES),
+                                    optval_p, optlen_p,
+                                    "getsockopt(optlen_out)" );
+   }
 }
 
 PRE(sys_connect)
